@@ -1,5 +1,6 @@
 // Turnierleitung: Login, Turnier anlegen, Spiele auf Boards legen und PINs vergeben.
-import { sb, rpc, latestTournament, loadTournament, esc } from './db.js';
+import { sb, rpc, latestTournament, loadTournament, loadVisits, esc } from './db.js';
+import { swissStandings, swissPairing, suggestRounds } from './swiss.js';
 import { roundCfg, roundName, OUT_LABEL } from './rules.js';
 
 const ERR = {
@@ -13,13 +14,21 @@ const ERR = {
   match_running: 'Der Spieler steht gerade in einem laufenden Spiel. Erst das Ergebnis eintragen oder das Spiel zurücksetzen.',
   no_free_slot: 'Kein Freilos mehr frei, in das nachgemeldet werden kann (oder das Folgespiel läuft schon).',
   empty_name: 'Bitte einen Namen eingeben.',
+  round_open: 'Es laufen noch Spiele dieser Runde.',
+  rematch: 'Diese Paarung gab es schon.',
+  stale_round: 'Die Runde wurde inzwischen schon ausgelost. Seite neu geladen.',
+  all_rounds_done: 'Alle Runden sind gespielt.',
+  bad_pairs: 'Die Auslosung passt nicht zu den aktiven Spielern. Bitte neu auslosen.',
+  rounds_open: 'Erst alle Schweizer Runden fertig spielen.',
+  final_started: 'Das KO-Finale läuft schon. Nachmelden ist nicht mehr möglich.',
+  bad_rounds: 'Rundenzahl zwischen 1 und 20 wählen.',
   min_2_players: 'Mindestens zwei Spieler eintragen.',
   max_128_players: 'Maximal 128 Spieler.',
 };
 const errText = e => ERR[(e && (e.message || '').trim())] || (e && e.message) || 'Unbekannter Fehler.';
 
 export async function startAdmin(main) {
-  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null;
+  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null;
 
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return loginView();
@@ -84,6 +93,10 @@ export async function startAdmin(main) {
     const t = await latestTournament();
     if (!t) { data = null; tab = 'new'; return; }
     data = await loadTournament(t.id);
+    if (t.mode === 'swiss') {
+      data.visits = await loadVisits(data.matches.filter(m => m.kind === 'sw').map(m => m.id));
+      data.sw = swissStandings(data.players, data.matches, data.visits);
+    }
     const ids = data.matches.filter(m => ['live', 'review'].includes(m.status)).map(m => m.id);
     pins = {};
     if (ids.length) {
@@ -124,7 +137,9 @@ export async function startAdmin(main) {
         <div class="pinline"><span class="muted">PIN</span><b>${esc(pins[m.id] || '––––')}</b>
         <button class="btn sm" data-un="${m.id}">Freigeben</button></div></article>`;
     }
-    h += `</div><h2 class="sec">Spielbereit</h2>`;
+    h += `</div>`;
+    if (t.mode === 'swiss') h += swissPanel();
+    h += `<h2 class="sec">Spielbereit</h2>`;
     if (!ready.length) h += '<p class="muted">Kein Spiel wartet gerade.</p>';
     else h += `<ol class="list adm-q">${ready.map(m => {
       const cfg = roundCfg(t, m);
@@ -141,9 +156,56 @@ export async function startAdmin(main) {
           msg = `Board ${b.dataset.b} gestartet · PIN ${pin}`;
         }
         if (b.dataset.un) { await rpc('admin_unassign', { p_match: b.dataset.un }); msg = 'Board freigegeben.'; }
+        if (b.dataset.sw === 'preview') { preview = swissPairing(data.sw); if (!preview) msg = 'Keine gültige Auslosung möglich.'; draw(); return; }
+        if (b.dataset.sw === 'cancel') { preview = null; draw(); return; }
+        if (b.dataset.sw === 'go' && preview) {
+          await rpc('admin_swiss_pair', { p_tournament: t.id, p_round: data.sw.rounds + 1, p_pairs: preview.pairs,
+            p_bye: preview.bye, p_allow_rematch: preview.rematch });
+          msg = `Runde ${data.sw.rounds + 1} ausgelost.`; preview = null;
+        }
+        if (b.dataset.sw === 'final') {
+          const top = data.sw.list.filter(p => !p.withdrawn).map(p => p.id);
+          await rpc('admin_swiss_final', { p_tournament: t.id, p_players: top.slice(0, t.size) });
+          msg = `KO-Finale der Top ${t.size} gestartet.`;
+        }
         await loadAll(); draw();
-      } catch (err) { msg = errText(err); draw(); }
+      } catch (err) { preview = null; msg = errText(err); await loadAll().catch(() => {}); draw(); }
     };
+    const af = body.querySelector('#swadd');
+    if (af) af.onsubmit = async e => {
+      e.preventDefault();
+      try { await rpc('admin_swiss_add', { p_tournament: t.id, p_name: af.querySelector('input').value });
+        msg = 'Spieler nachgemeldet. Er wird ab der nächsten Auslosung berücksichtigt.'; preview = null; await loadAll(); draw(); }
+      catch (err) { msg = errText(err); draw(); }
+    };
+  }
+
+  // ---------- Schweizer System ----------
+  function swissPanel() {
+    const { t, matches } = data, sw = data.sw, total = t.swiss.rounds;
+    const nm = id => esc((data.players.find(p => p.id === id) || {}).name || '');
+    const hasFinal = matches.some(m => m.kind === 'ko');
+    const done = sw.rounds >= total && !sw.open;
+    const endTxt = { table: 'Tabellen-Erster gewinnt', top4: 'KO-Finale Top 4', top8: 'KO-Finale Top 8' }[t.swiss.end];
+    let h = `<h2 class="sec">Schweizer System</h2><div class="card swp"><div class="swp-h">
+      <div><b>Runde ${sw.rounds} von ${total}</b><div class="muted small">${endTxt} · Nachzügler starten mit ${t.swiss.late === 'last' ? 'den Punkten des Letzten' : '0 Punkten'}</div></div>`;
+    if (preview) {
+      h += `</div><p class="small">Vorschau Runde ${sw.rounds + 1}${preview.rematch ? ' · <b class="warn-t">Ohne Wiederholung nicht lösbar, enthält eine schon gespielte Paarung</b>' : ''}:</p>
+        <ol class="list">${preview.pairs.map(([a, b]) => `<li><span>${nm(a)} <i>vs</i> ${nm(b)}</span></li>`).join('')}
+        ${preview.bye ? `<li><span>${nm(preview.bye)}</span><span class="muted">Freilos (2 Punkte)</span></li>` : ''}</ol>
+        <div class="bbtns"><button class="btn pri" data-sw="go">Auslosung bestätigen</button><button class="btn" data-sw="cancel">Abbrechen</button></div>`;
+    } else if (sw.open) {
+      h += `<span class="muted small">Runde läuft – Auslosung nach dem letzten Spiel</span></div>`;
+    } else if (!done) {
+      h += `<button class="btn pri" data-sw="preview">Runde ${sw.rounds + 1} auslosen</button></div>`;
+    } else if (t.swiss.end !== 'table' && !hasFinal) {
+      h += `<button class="btn pri" data-sw="final">KO-Finale Top ${t.size} starten</button></div>`;
+    } else {
+      h += `<span class="tag gold">${hasFinal ? 'KO-Finale läuft' : 'Beendet'}</span></div>`;
+    }
+    if (!hasFinal) h += `<form id="swadd" class="bbtns addrow"><input placeholder="Name für Nachmeldung" maxlength="40" aria-label="Name für Nachmeldung" required>
+      <button class="btn sm" type="submit">Nachmelden (ab nächster Runde)</button></form>`;
+    return h + '</div>';
   }
 
   // ---------- Korrekturen ----------
@@ -168,7 +230,7 @@ export async function startAdmin(main) {
       }).join('') || '<li class="muted">Noch keine Spiele mit zwei Spielern.</li>'}</ol>
       <h2 class="sec">Spieler</h2>
       <form id="addf" class="bbtns addrow"><input id="addn" placeholder="Name für Nachmeldung" maxlength="40" aria-label="Name für Nachmeldung" required>
-        <button class="btn sm pri" type="submit">Nachmelden (in ein Freilos)</button></form>
+        <button class="btn sm pri" type="submit">${t.mode === 'swiss' ? 'Nachmelden (ab nächster Runde)' : 'Nachmelden (in ein Freilos)'}</button></form>
       <ol class="list fixlist">${players.map(p => `<li><div><span class="muted">${p.seed}.</span>
         <input class="inl" data-name="${p.id}" value="${esc(p.name)}" maxlength="40" aria-label="Name von Spieler ${p.seed}">
         ${p.withdrawn ? '<span class="st">Zurückgezogen</span>' : ''}</div>
@@ -198,7 +260,7 @@ export async function startAdmin(main) {
     };
     body.querySelector('#addf').onsubmit = async e => {
       e.preventDefault();
-      try { await rpc('admin_add_player', { p_tournament: t.id, p_name: body.querySelector('#addn').value });
+      try { await rpc(t.mode === 'swiss' ? 'admin_swiss_add' : 'admin_add_player', { p_tournament: t.id, p_name: body.querySelector('#addn').value });
         msg = 'Spieler nachgemeldet.'; await loadAll(); draw(); }
       catch (err) { msg = errText(err); draw(); }
     };
@@ -213,6 +275,17 @@ export async function startAdmin(main) {
       <td><input type="checkbox" data-c="${key}.din" aria-label="${label} Double In"></td></tr>`;
     body.innerHTML = `<form id="nf" class="form wide">
       ${data ? '<p class="note">Ein neues Turnier ersetzt in der Live-Ansicht das aktuelle. Das alte bleibt in der Datenbank erhalten.</p>' : ''}
+      <div class="flabel">Turniermodus</div>
+      <div class="seg modesel" role="radiogroup" aria-label="Turniermodus">
+        <button type="button" class="on" data-mode="ko" role="radio" aria-checked="true">KO-Baum</button>
+        <button type="button" data-mode="swiss" role="radio" aria-checked="false">Schweizer System</button></div>
+      <div id="swopt" class="grid2" hidden>
+        <div><label for="swr">Runden</label><select id="swr">${Array.from({ length: 12 }, (_, i) => `<option>${i + 1}</option>`).join('')}</select></div>
+        <div><label for="swe">Ende</label><select id="swe"><option value="table">Tabellen-Erster gewinnt</option>
+          <option value="top4">KO-Finale Top 4</option><option value="top8" selected>KO-Finale Top 8</option></select></div>
+        <div><label for="swl">Nachzügler starten mit</label><select id="swl"><option value="zero">0 Punkten</option>
+          <option value="last">Punkten des Letzten</option></select></div>
+      </div>
       <div class="grid2">
         <div><label for="tn">Turniername</label><input id="tn" required maxlength="80" value="Neujahrsdart-Turnier Vynen 26"></div>
         <div><label for="td">Datum</label><input id="td" type="date" value="2027-01-23"></div>
@@ -220,15 +293,26 @@ export async function startAdmin(main) {
         <div><label for="ts">Setzliste</label><select id="ts"><option value="list">Reihenfolge wie eingegeben</option><option value="rand">Zufällig auslosen</option></select></div>
       </div>
       <label for="tp">Spieler, einer pro Zeile</label><textarea id="tp" rows="10" placeholder="Max&#10;Anna&#10;Tim"></textarea>
-      <label class="chk"><input type="checkbox" id="t3" checked> Spiel um Platz 3</label>
+      <label class="chk" id="t3l"><input type="checkbox" id="t3" checked> Spiel um Platz 3</label>
       <div id="rc"></div>
       <button class="btn pri" type="submit">Turnier erstellen</button></form>`;
     const f = body.querySelector('#nf');
     const rc = body.querySelector('#rc');
     const names = () => [...new Set(f.tp.value.split('\n').map(s => s.trim()).filter(Boolean))];
-    let lastKey = '';
+    let lastKey = '', mode = 'ko', roundsTouched = false;
+    const swopt = body.querySelector('#swopt');
+    body.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
+      mode = b.dataset.mode;
+      body.querySelectorAll('[data-mode]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
+      swopt.hidden = mode !== 'swiss';
+      drawCfg();
+    });
+    f.swr.onchange = () => { roundsTouched = true; };
+    f.swe.onchange = () => drawCfg();
     const drawCfg = () => {
       const n = names().length;
+      if (mode === 'swiss') return drawSwissCfg(n);
+      body.querySelector('#t3l').hidden = false;
       if (n < 2) { lastKey = ''; rc.innerHTML = '<p class="muted small">Sobald mindestens zwei Spieler eingetragen sind, erscheinen hier die Einstellungen pro Runde.</p>'; return; }
       let sz = 2; while (sz < n) sz *= 2; const R = Math.log2(sz);
       const info = `${n} Spieler · ${R} Runden${sz > n ? ` · ${sz - n} Freilos${sz - n > 1 ? 'e' : ''} in Runde 1` : ''}`;
@@ -238,6 +322,21 @@ export async function startAdmin(main) {
       let rows = '';
       for (let r = 0; r < R; r++) rows += cfgRow('r' + r, rn(R, r), { bo: r === R - 1 ? 5 : 3, start: 501, out: 'double' });
       if (f.t3.checked && R >= 2) rows += cfgRow('p3', 'Platz 3', { bo: 3, start: 501, out: 'double' });
+      rc.innerHTML = `<p class="muted small info">${info}</p>
+        <div class="tblwrap"><table class="cfg"><thead><tr><th>Runde</th><th>Best of</th><th>Start</th><th>Out</th><th>Double In</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    };
+    const drawSwissCfg = n => {
+      if (!roundsTouched && n >= 2) f.swr.value = String(Math.min(12, suggestRounds(n)));
+      const fin = { table: 0, top4: 2, top8: 3 }[f.swe.value];
+      body.querySelector('#t3l').hidden = fin < 2;
+      const info = n < 2 ? 'Mindestens zwei Spieler eintragen.'
+        : `${n} Spieler · ${f.swr.value} Runden${n % 2 ? ' · pro Runde ein Freilos' : ''}${fin ? ` · danach KO-Finale Top ${fin === 2 ? 4 : 8}` : ''}`;
+      const key = 'sw|' + fin + '|' + f.t3.checked;
+      if (key === lastKey) { rc.querySelector('.info').textContent = info; return; }
+      lastKey = key;
+      let rows = cfgRow('sw', 'Schweizer Runden', { bo: 3, start: 501, out: 'double' });
+      for (let r = 0; r < fin; r++) rows += cfgRow('r' + r, 'KO · ' + rn(fin, r), { bo: r === fin - 1 ? 5 : 3, start: 501, out: 'double' });
+      if (fin >= 2 && f.t3.checked) rows += cfgRow('p3', 'Platz 3', { bo: 3, start: 501, out: 'double' });
       rc.innerHTML = `<p class="muted small info">${info}</p>
         <div class="tblwrap"><table class="cfg"><thead><tr><th>Runde</th><th>Best of</th><th>Start</th><th>Out</th><th>Double In</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     };
@@ -255,6 +354,17 @@ export async function startAdmin(main) {
         }
         return o;
       };
+      if (mode === 'swiss') {
+        const fin = { table: 0, top4: 2, top8: 3 }[f.swe.value];
+        const rounds = []; for (let r = 0; r < fin; r++) rounds.push(get('r' + r));
+        try {
+          await rpc('admin_create_swiss', { p_name: f.tn.value.trim(), p_date: f.td.value || null, p_boards: Number(f.tb.value),
+            p_swiss: { rounds: Number(f.swr.value), end: f.swe.value, late: f.swl.value, cfg: get('sw') },
+            p_rounds: rounds, p_third: fin >= 2 && f.t3.checked, p_p3: fin >= 2 && f.t3.checked ? get('p3') : null, p_players: list });
+          msg = 'Schweizer Turnier erstellt. Unter „Boards“ Runde 1 auslosen.'; tab = 'boards'; await loadAll(); draw();
+        } catch (err) { msg = errText(err); draw(); }
+        return;
+      }
       let sz = 2; while (sz < list.length) sz *= 2; const R = Math.log2(sz);
       const rounds = []; for (let r = 0; r < R; r++) rounds.push(get('r' + r));
       try {

@@ -260,3 +260,20 @@ body.hall .top{display:none}
 .hall-boards.b1,.hall-boards.b2{grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr))}
 .hall-boards.b4{grid-template-columns:repeat(2,1fr)}
 @media (min-width:1500px){.hall-boards.b4{grid-template-columns:repeat(4,1fr)}}
+
+/* Schweizer System */
+.form .flabel{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+.modesel{max-width:420px;flex:none}
+.swp{display:flex;flex-direction:column;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.swp-h{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.swp-h b{font-size:20px}
+.warn-t{color:var(--gold)}
+.sw-rounds{display:flex;gap:16px;overflow-x:auto;padding-bottom:8px;margin-top:8px}
+.sw-col{flex:none;width:230px;display:flex;flex-direction:column;gap:10px}
+.sw-col h3{margin:0;font-size:14px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+.sw-col h3 span{color:var(--dim);letter-spacing:.04em}
+.tbl td.pts{color:var(--fg);font-weight:600}
+.hall-tbl .tbl{min-width:0}
+.hall-tbl .tbl td{font-size:clamp(18px,1.5vw,26px)}
+
+[hidden]{display:none!important}

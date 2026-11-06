@@ -6,13 +6,14 @@ const BOGEY_DOUBLE = [169, 168, 166, 165, 163, 162, 159];
 
 export function roundCfg(t, m) {
   const rounds = Array.isArray(t?.rounds) ? t.rounds : [];
-  let c = m.kind === 'p3' ? (t.p3_cfg || rounds[rounds.length - 1]) : rounds[m.round];
+  let c = m.kind === 'sw' ? (t.swiss && t.swiss.cfg) : m.kind === 'p3' ? (t.p3_cfg || rounds[rounds.length - 1]) : rounds[m.round];
   c = c || {};
   return { bo: c.bo || 3, start: c.start || 501, out: c.out || 'double', din: !!c.din };
 }
 
 export function roundName(t, m) {
   if (m.kind === 'p3') return 'Spiel um Platz 3';
+  if (m.kind === 'sw') return `Runde ${m.round + 1}`;
   const R = Math.round(Math.log2(t.size));
   const k = R - 1 - m.round;
   return ['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale'][k] || `Runde ${m.round + 1}`;

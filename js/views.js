@@ -108,8 +108,51 @@ function bracketHtml(d) {
 }
 
 export function baum(main) {
-  return mount(main, d => `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${champ(d)}
+  return mount(main, d => d.t.mode === 'swiss' ? swissBaum(d) : `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${champ(d)}
     <div class="bracket-scroll">${bracketHtml(d)}</div><p class="muted small">Auf dem Handy waagerecht wischen.</p></div>`);
+}
+
+// ---------- Schweizer System ----------
+function swCard(d, m) {
+  const row = i => {
+    const id = i ? m.player_b : m.player_a;
+    if (!id) return `<div class="row bye"><span class="seed"></span><span class="nm">Freilos</span><span class="lg"></span></div>`;
+    const fin = ['done', 'wo', 'bye'].includes(m.status);
+    const win = fin && m.winner === id, lose = fin && m.winner && m.winner !== id;
+    const legs = m.status === 'done' ? (i ? m.legs_b : m.legs_a) : m.st ? m.st.legs[i] : m.status === 'wo' && lose ? 'w.o.' : '';
+    return `<div class="row ${win ? 'w' : ''} ${lose ? 'l' : ''}"><span class="seed"></span><span class="nm">${esc(d.pname(id))}</span><span class="lg">${legs}</span></div>`;
+  };
+  const badge = ['live', 'review'].includes(m.status) ? `<span class="mbadge">● Board ${m.board}</span>` : '';
+  return `<div class="match ${m.status}">${badge}${row(0)}${row(1)}</div>`;
+}
+
+function swissBaum(d) {
+  const sw = d.matches.filter(m => m.kind === 'sw');
+  const total = d.t.swiss.rounds;
+  let cols = '';
+  for (let r = 0; r < total; r++) {
+    const ms = sw.filter(m => m.round === r).sort((a, b) => a.idx - b.idx);
+    cols += `<section class="sw-col"><h3>Runde ${r + 1}<span>${ms.length ? `${ms.filter(m => ['done', 'wo', 'bye'].includes(m.status)).length}/${ms.length}` : 'offen'}</span></h3>
+      ${ms.length ? ms.map(m => swCard(d, m)).join('') : '<p class="muted small">Noch nicht ausgelost.</p>'}</section>`;
+  }
+  const hasFinal = d.matches.some(m => m.kind === 'ko');
+  return `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${champ(d)}
+    <h2 class="sec">Schweizer System · ${d.swiss.rounds} von ${total} Runden</h2><div class="sw-rounds">${cols}</div>
+    ${hasFinal ? `<h2 class="sec">KO-Finale</h2><div class="bracket-scroll">${bracketHtml(d)}</div>` : ''}
+    <p class="muted small">Auf dem Handy waagerecht wischen.</p></div>`;
+}
+
+function swissTable(d, limit) {
+  const list = d.swiss.list.slice(0, limit || 999);
+  const st = new Map(d.stats.map(p => [p.id, p]));
+  return `<div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Pkt</th><th>Buchholz</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th>
+    ${limit ? '' : `<th>HF</th>${BUCKETS.map(b => `<th>${b === 180 ? '180' : b + '+'}</th>`).join('')}`}</tr></thead><tbody>
+    ${list.map(p => { const df = p.lf - p.la, x = st.get(p.id) || { sc: {}, hf: 0 }; return `<tr><td class="pos">${p.rank}</td>
+      <td>${esc(p.name)}${p.withdrawn ? ' <span class="st">Zurückgezogen</span>' : ''}${p.start ? ` <span class="muted small">(+${p.start} Start)</span>` : ''}</td>
+      <td class="num pts">${p.pts}</td><td class="num">${p.buch}</td><td class="num">${p.sp}</td><td class="num">${p.s}</td><td class="num">${p.n}</td>
+      <td class="num">${p.lf}:${p.la}</td><td class="num">${df > 0 ? '+' : df < 0 ? '−' : ''}${Math.abs(df)}</td><td class="num">${fmt(p.avg)}</td>
+      ${limit ? '' : `<td class="num">${x.hf || '–'}</td>${BUCKETS.map(b => `<td class="num ${b === 180 && x.sc[b] ? 'hot' : ''}">${x.sc[b] || '–'}</td>`).join('')}`}</tr>`; }).join('')}
+    </tbody></table></div>`;
 }
 
 // ---------- Tabelle & Highlights ----------
@@ -134,7 +177,9 @@ export function tabelle(main) {
       ${board('180er', by('t180', v => v + '×'), 'Noch keine 180.')}
       ${board('Kürzestes Leg', by('best', v => v + ' Darts', true), 'Noch kein Leg beendet.')}
       </div>
-      <h2 class="sec">Tabelle</h2>
+      ${d.t.mode === 'swiss' ? `<h2 class="sec">Tabelle · Schweizer System</h2>${swissTable(d)}
+      <p class="muted small">Sieg 2 Punkte (auch Freilos und kampflos). Bei Gleichstand zählen Buchholz (Punkte aller Gegner), Leg-Differenz und Average. HF = höchstes Finish ab 101.</p></div>` : ''}
+      ${d.t.mode === 'swiss' ? '' : `<h2 class="sec">Tabelle</h2>
       <div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Status</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th><th>HF</th>
       ${BUCKETS.map(b => `<th>${b === 180 ? '180' : b + '+'}</th>`).join('')}</tr></thead><tbody>
       ${list.map((p, i) => { const df = p.lf - p.la; return `<tr><td class="pos">${i + 1}</td><td>${esc(p.name)}</td><td>${status(p)}</td>
@@ -142,7 +187,7 @@ export function tabelle(main) {
         <td class="num">${df > 0 ? '+' : df < 0 ? '−' : ''}${Math.abs(df)}</td><td class="num">${fmt(p.avg)}</td><td class="num">${p.hf || '–'}</td>
         ${BUCKETS.map(b => `<td class="num ${b === 180 && p.sc[b] ? 'hot' : ''}">${p.sc[b] || '–'}</td>`).join('')}</tr>`; }).join('')}
       </tbody></table></div>
-      <p class="muted small">Ø über alle Aufnahmen im Turnier. HF = höchstes Finish ab 101. 80+ zählt 80–99, 100+ zählt 100–119 usw. Alles entsteht automatisch aus dem Scorer.</p></div>`;
+      <p class="muted small">Ø über alle Aufnahmen im Turnier. HF = höchstes Finish ab 101. 80+ zählt 80–99, 100+ zählt 100–119 usw. Alles entsteht automatisch aus dem Scorer.</p></div>`}`;
   });
 }
 
@@ -170,7 +215,10 @@ export function halle(main) {
         <button class="btn sm" data-fs type="button">Vollbild</button><a class="btn sm" href="#live">Schließen</a></header>
       ${champ(d)}
       <div class="hall-boards b${Math.min(d.t.boards, 8)}">${boards.join('')}</div>
-      <div class="hall-panel">${panel === 0 ? info : `<h2 class="sec">Turnierbaum</h2><div class="hall-bk">${bracketHtml(d)}</div>`}</div>
+      <div class="hall-panel">${panel === 0 ? info
+        : d.t.mode === 'swiss' && !d.matches.some(m => m.kind === 'ko')
+          ? `<h2 class="sec">Tabelle · Runde ${d.swiss.rounds} von ${d.t.swiss.rounds}</h2><div class="hall-tbl">${swissTable(d, 12)}</div>`
+          : `<h2 class="sec">${d.t.mode === 'swiss' ? 'KO-Finale' : 'Turnierbaum'}</h2><div class="hall-bk">${bracketHtml(d)}</div>`}</div>
       <div class="hall-dots"><span class="${panel === 0 ? 'on' : ''}"></span><span class="${panel === 1 ? 'on' : ''}"></span></div></div>`;
     fit();
   };

@@ -1,6 +1,7 @@
 // Gemeinsame Live-Daten für alle öffentlichen Ansichten (Live, Baum, Tabelle, Halle)
 import { sb, latestTournament, loadTournament, loadVisits } from './db.js';
 import { roundCfg, compute } from './rules.js';
+import { swissStandings } from './swiss.js';
 
 export function watchTournament(onData, onError) {
   let alive = true, timer = null, ch = null, poll = null, tid = null;
@@ -42,6 +43,16 @@ function enrich(d) {
     if (['live', 'review'].includes(m.status)) m.st = compute(m.cfg, m.bulls, m.vis);
   }
   d.stats = playerStats(d);
+  if (t.mode === 'swiss') {
+    d.swiss = swissStandings(players, matches, visits);
+    const rank = new Map(d.swiss.list.map(p => [p.id, p.rank]));
+    const total = (t.swiss && t.swiss.rounds) || 0;
+    const finished = d.swiss.rounds >= total && !d.swiss.open;
+    // Ende „Tabellen-Erster“: Plätze aus der Schweizer Tabelle
+    if (t.swiss && t.swiss.end === 'table' && finished)
+      for (const p of d.stats) { const r = rank.get(p.id); if (r <= 4) p.place = r; }
+    d.stats.sort((a, b) => (a.place || 99) - (b.place || 99) || rank.get(a.id) - rank.get(b.id));
+  }
   return d;
 }
 
