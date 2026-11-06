@@ -49,7 +49,7 @@ function playerStats(d) {
   const { players, matches, R } = d;
   const S = {};
   for (const p of players) S[p.id] = { id: p.id, name: p.name, seed: p.seed, withdrawn: p.withdrawn, sp: 0, s: 0, n: 0, lf: 0, la: 0,
-    pts: 0, darts: 0, t180: 0, t140: 0, hf: 0, best: 0, bestAvg: 0, out: null, place: null, reach: 0 };
+    pts: 0, darts: 0, t180: 0, sc: { 80: 0, 100: 0, 120: 0, 140: 0, 160: 0, 180: 0 }, hf: 0, hfs: [], best: 0, bestAvg: 0, out: null, place: null, reach: 0 };
   for (const m of matches) {
     const ids = [m.player_a, m.player_b];
     if (m.kind === 'ko') ids.forEach(id => { if (S[id]) S[id].reach = Math.max(S[id].reach, m.round); });
@@ -60,11 +60,14 @@ function playerStats(d) {
       const p = S[ids[v.side]]; if (!p) continue;
       const pts = v.bust ? 0 : v.score;
       p.pts += pts; p.darts += v.darts; per[v.side].pts += pts; per[v.side].darts += v.darts;
-      if (v.score === 180 && !v.bust) p.t180++;
-      else if (v.score >= 140 && !v.bust) p.t140++;
+      if (!v.bust && v.score >= 80) {
+        const b = v.score === 180 ? 180 : Math.min(160, Math.floor(v.score / 20) * 20);
+        p.sc[b]++;
+        if (v.score === 180) p.t180++;
+      }
       const k = v.leg_no + '-' + v.side; legDarts[k] = (legDarts[k] || 0) + v.darts;
       if (v.checkout) {
-        if (v.score > p.hf) p.hf = v.score;
+        if (v.score >= 101) { p.hfs.push(v.score); if (v.score > p.hf) p.hf = v.score; } // Highfinish = 101–170
         const ld = legDarts[k];
         if (!p.best || ld < p.best) p.best = ld;
       }

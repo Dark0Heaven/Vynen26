@@ -59,100 +59,134 @@ export function live(main) {
   });
 }
 
-// ---------- Turnierbaum ----------
-export function baum(main) {
-  return mount(main, d => {
-    const { t, R } = d;
-    const card = m => {
-      const st = m.st;
-      const row = i => {
-        const id = i ? m.player_b : m.player_a, bye = i ? m.bye_b : m.bye_a;
-        const p = d.stats.find(x => x.id === id);
-        if (!id) return `<div class="row ${bye ? 'bye' : 'tbd'}"><span class="seed"></span><span class="nm">${bye ? 'Freilos' : 'offen'}</span><span class="lg"></span></div>`;
-        const win = m.winner && m.winner === id && ['done', 'wo', 'bye'].includes(m.status);
-        const lose = m.winner && m.winner !== id && ['done', 'wo'].includes(m.status);
-        const legs = m.status === 'done' ? (i ? m.legs_b : m.legs_a) : st ? st.legs[i] : m.status === 'wo' && lose ? 'w.o.' : '';
-        return `<div class="row ${win ? 'w' : ''} ${lose ? 'l' : ''}"><span class="seed">${p ? p.seed : ''}</span>
-          <span class="nm">${esc(d.pname(id))}${p && p.withdrawn ? ' <small>(zurückgezogen)</small>' : ''}</span><span class="lg">${legs}</span></div>`;
-      };
-      const badge = ['live', 'review'].includes(m.status) ? `<span class="mbadge">● Board ${m.board}</span>` : '';
-      return `<div class="match ${m.status}">${badge}${row(0)}${row(1)}</div>`;
+// ---------- Turnierbaum (mit Verbindungslinien) ----------
+function bracketHtml(d) {
+  const { t, R } = d;
+  const W = 210, H = 76, X = 46, U = H + 14, TOP = 34;
+  const cy = (r, i) => TOP + U * Math.pow(2, r) * (i + 0.5);
+  const cx = r => r * (W + X);
+  const card = (m, x, y) => {
+    const st = m.st;
+    const row = i => {
+      const id = i ? m.player_b : m.player_a, bye = i ? m.bye_b : m.bye_a;
+      const p = d.stats.find(z => z.id === id);
+      if (!id) return `<div class="row ${bye ? 'bye' : 'tbd'}"><span class="seed"></span><span class="nm">${bye ? 'Freilos' : ''}</span><span class="lg"></span></div>`;
+      const fin = ['done', 'wo', 'bye'].includes(m.status);
+      const win = fin && m.winner === id, lose = fin && m.winner && m.winner !== id;
+      const legs = m.status === 'done' ? (i ? m.legs_b : m.legs_a) : st ? st.legs[i] : m.status === 'wo' && lose ? 'w.o.' : '';
+      return `<div class="row ${win ? 'w' : ''} ${lose ? 'l' : ''}"><span class="seed">${p ? p.seed : ''}</span>
+        <span class="nm">${esc(d.pname(id))}${p && p.withdrawn ? ' <small>(zg.)</small>' : ''}</span><span class="lg">${legs}</span></div>`;
     };
-    let h = `<div class="wrap"><h1 class="tt">${esc(t.name)}</h1>${champ(d)}<div class="bracket-scroll"><div class="bracket">`;
-    for (let r = 0; r < R; r++) {
-      const ms = d.matches.filter(m => m.kind === 'ko' && m.round === r).sort((a, b) => a.idx - b.idx);
-      const c = ms[0] ? ms[0].cfg : null;
-      if (!ms.length) continue;
-      h += `<section class="round"><h3>${esc(roundName(t, ms[0]))}<span>${c ? `Bo${c.bo} · ${c.start}` : ''}</span></h3><div class="col">${ms.map(card).join('')}</div>`;
-      if (r === R - 1) {
-        const p3 = d.matches.find(m => m.kind === 'p3');
-        if (p3) h += `<h3 class="p3h">Spiel um Platz 3</h3>${card(p3)}`;
+    const badge = ['live', 'review'].includes(m.status) ? `<span class="mbadge">B${m.board}</span>` : '';
+    return `<div class="match bk-m ${m.status}" style="left:${x}px;top:${y}px;width:${W}px;height:${H}px">${badge}${row(0)}${row(1)}</div>`;
+  };
+  let cards = '', heads = '', lines = '';
+  for (let r = 0; r < R; r++) {
+    const ms = d.matches.filter(m => m.kind === 'ko' && m.round === r);
+    if (!ms.length) continue;
+    const c = ms[0].cfg;
+    heads += `<div class="bk-h" style="left:${cx(r)}px;width:${W}px">${esc(roundName(t, ms[0]))}<span>Bo${c.bo} · ${c.start}</span></div>`;
+    for (const m of ms) {
+      cards += card(m, cx(r), cy(r, m.idx) - H / 2);
+      if (r < R - 1) {
+        const x1 = cx(r) + W, xm = x1 + X / 2, y1 = cy(r, m.idx), y2 = cy(r + 1, m.idx >> 1);
+        const on = ['done', 'wo', 'bye'].includes(m.status) && m.winner;
+        lines += `<path class="${on ? 'on' : ''}" d="M${x1} ${y1}H${xm}V${y2}H${cx(r + 1)}"/>`;
       }
-      h += '</section>';
     }
-    return h + '</div></div><p class="muted small">Waagerecht wischen, um alle Runden zu sehen.</p></div>';
-  });
+  }
+  let height = TOP + U * (t.size / 2);
+  const p3 = d.matches.find(m => m.kind === 'p3');
+  if (p3) {
+    const y = cy(R - 1, 0) + H / 2 + 56;
+    heads += `<div class="bk-h" style="left:${cx(R - 1)}px;top:${y - 26}px;width:${W}px">Spiel um Platz 3</div>`;
+    cards += card(p3, cx(R - 1), y);
+    height = Math.max(height, y + H + 10);
+  }
+  const width = R * W + (R - 1) * X;
+  return `<div class="bk" style="width:${width}px;height:${height}px"><svg class="bk-l" width="${width}" height="${height}" aria-hidden="true">${lines}</svg>${heads}${cards}</div>`;
+}
+
+export function baum(main) {
+  return mount(main, d => `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${champ(d)}
+    <div class="bracket-scroll">${bracketHtml(d)}</div><p class="muted small">Auf dem Handy waagerecht wischen.</p></div>`);
 }
 
 // ---------- Tabelle & Highlights ----------
+const BUCKETS = [80, 100, 120, 140, 160, 180];
 export function tabelle(main) {
   return mount(main, d => {
-    const R = d.R;
     const list = d.stats;
-    const top = (key, f, n = 5) => list.filter(p => p[key]).sort((a, b) => key === 'best' ? a[key] - b[key] : b[key] - a[key]).slice(0, n)
-      .map(p => ({ name: p.name, v: f(p[key]) }));
     const board = (title, items, empty) => `<section class="hl"><h3>${title}</h3>${items.length
-      ? `<div class="hl-top"><span class="v">${items[0].v}</span><span class="who">${esc(items[0].name)}</span></div><ol>${items.slice(1)
+      ? `<div class="hl-top"><span class="v">${items[0].v}</span><span class="who">${esc(items[0].name)}</span></div><ol>${items.slice(1, 5)
         .map((x, i) => `<li><span>${i + 2}. ${esc(x.name)}</span><span class="v">${x.v}</span></li>`).join('')}</ol>`
       : `<p class="muted small">${empty}</p>`}</section>`;
+    const hfs = list.flatMap(p => p.hfs.map(v => ({ name: p.name, v }))).sort((a, b) => b.v - a.v);
+    const by = (key, f, asc) => list.filter(p => p[key]).sort((a, b) => asc ? a[key] - b[key] : b[key] - a[key]).map(p => ({ name: p.name, v: f(p[key]) }));
     const status = p => p.place ? `<span class="st ${p.place === 1 ? 'champ-st' : ''}">${p.place}. Platz</span>`
       : p.withdrawn ? '<span class="st">Zurückgezogen</span>'
       : p.out !== null ? `<span class="st">Aus · ${esc(roundName(d.t, { kind: 'ko', round: p.out }))}</span>`
       : `<span class="st in">Im ${esc(roundName(d.t, { kind: 'ko', round: p.reach }))}</span>`;
     return `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>
       <h2 class="sec">Highlights</h2><div class="hls">
-      ${board('High Finishes', top('hf', v => v), 'Noch kein Checkout.')}
-      ${board('Bester Average (Spiel)', top('bestAvg', fmt), 'Noch kein Spiel beendet.')}
-      ${board('180er', top('t180', v => v + '×'), 'Noch keine 180.')}
-      ${board('Kürzestes Leg', top('best', v => v + ' Darts'), 'Noch kein Leg beendet.')}
+      ${board('High Finishes (101–170)', hfs.map(x => ({ name: x.name, v: x.v })), 'Noch kein Highfinish.')}
+      ${board('Bester Average (Spiel)', by('bestAvg', fmt), 'Noch kein Spiel beendet.')}
+      ${board('180er', by('t180', v => v + '×'), 'Noch keine 180.')}
+      ${board('Kürzestes Leg', by('best', v => v + ' Darts', true), 'Noch kein Leg beendet.')}
       </div>
       <h2 class="sec">Tabelle</h2>
-      <div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Status</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th><th>HF</th><th>180</th><th>140+</th></tr></thead><tbody>
+      <div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Status</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th><th>HF</th>
+      ${BUCKETS.map(b => `<th>${b === 180 ? '180' : b + '+'}</th>`).join('')}</tr></thead><tbody>
       ${list.map((p, i) => { const df = p.lf - p.la; return `<tr><td class="pos">${i + 1}</td><td>${esc(p.name)}</td><td>${status(p)}</td>
         <td class="num">${p.sp}</td><td class="num">${p.s}</td><td class="num">${p.n}</td><td class="num">${p.lf}:${p.la}</td>
         <td class="num">${df > 0 ? '+' : df < 0 ? '−' : ''}${Math.abs(df)}</td><td class="num">${fmt(p.avg)}</td><td class="num">${p.hf || '–'}</td>
-        <td class="num">${p.t180 || '–'}</td><td class="num">${p.t140 || '–'}</td></tr>`; }).join('')}
+        ${BUCKETS.map(b => `<td class="num ${b === 180 && p.sc[b] ? 'hot' : ''}">${p.sc[b] || '–'}</td>`).join('')}</tr>`; }).join('')}
       </tbody></table></div>
-      <p class="muted small">Ø über alle Aufnahmen im Turnier. Highlights entstehen automatisch aus dem Scorer.</p></div>`;
+      <p class="muted small">Ø über alle Aufnahmen im Turnier. HF = höchstes Finish ab 101. 80+ zählt 80–99, 100+ zählt 100–119 usw. Alles entsteht automatisch aus dem Scorer.</p></div>`;
   });
 }
 
-// ---------- Halle (Beamer/TV) ----------
+// ---------- Halle (Großbild für Monitor/Beamer) ----------
+// Oben immer die Boards, unten wechseln alle 20 Sekunden: Infos ↔ Turnierbaum
 export function halle(main) {
   document.body.classList.add('hall');
-  const stop = mount(main, d => {
+  let data = null, panel = 0;
+  const draw = () => {
+    if (!data) { main.innerHTML = noData; return; }
+    const d = data;
     const boards = []; for (let b = 1; b <= d.t.boards; b++) boards.push(boardTile(d, b, true));
-    const hf = d.stats.filter(p => p.hf).sort((a, b) => b.hf - a.hf).slice(0, 3);
+    const hfs = d.stats.flatMap(p => p.hfs.map(v => ({ name: p.name, v }))).sort((a, b) => b.v - a.v).slice(0, 3);
     const t180 = d.stats.filter(p => p.t180).sort((a, b) => b.t180 - a.t180).slice(0, 3);
     const now = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-    return `<div class="hall-wrap">
-      <header class="hall-h"><h1>${esc(d.t.name)}</h1><span class="clock">${now}</span>
-        <button class="btn sm" id="fs" type="button">Vollbild</button><a class="btn sm" href="#live">Schließen</a></header>
-      ${champ(d)}
-      <div class="hall-boards">${boards.join('')}</div>
-      <div class="hall-row">
+    const info = `<div class="hall-row">
         <section><h2 class="sec">Als Nächstes</h2>${queue(d, 5)}</section>
         <section><h2 class="sec">Zuletzt beendet</h2>${recent(d, 5) || '<p class="muted">Noch kein Ergebnis.</p>'}</section>
         <section><h2 class="sec">Highlights</h2><ol class="list">
-          ${hf.map(p => `<li><span>High Finish ${esc(p.name)}</span><b>${p.hf}</b></li>`).join('')}
-          ${t180.map(p => `<li><span>180er ${esc(p.name)}</span><b>${p.t180}×</b></li>`).join('') || ''}
-          ${!hf.length && !t180.length ? '<li class="muted">Noch keine Highlights.</li>' : ''}</ol></section>
-      </div></div>`;
-  });
-  const onClick = e => {
-    if (e.target.id === 'fs') { const el = document.documentElement; (el.requestFullscreen ? el.requestFullscreen() : Promise.reject()).catch(() => {}); }
+          ${hfs.map(x => `<li><span>High Finish · ${esc(x.name)}</span><b>${x.v}</b></li>`).join('')}
+          ${t180.map(p => `<li><span>180er · ${esc(p.name)}</span><b>${p.t180}×</b></li>`).join('')}
+          ${!hfs.length && !t180.length ? '<li class="muted">Noch keine Highlights.</li>' : ''}</ol></section></div>`;
+    main.innerHTML = `<div class="hall-wrap">
+      <header class="hall-h"><h1>${esc(d.t.name)}</h1><span class="clock">${now}</span>
+        <button class="btn sm" data-fs type="button">Vollbild</button><a class="btn sm" href="#live">Schließen</a></header>
+      ${champ(d)}
+      <div class="hall-boards b${Math.min(d.t.boards, 8)}">${boards.join('')}</div>
+      <div class="hall-panel">${panel === 0 ? info : `<h2 class="sec">Turnierbaum</h2><div class="hall-bk">${bracketHtml(d)}</div>`}</div>
+      <div class="hall-dots"><span class="${panel === 0 ? 'on' : ''}"></span><span class="${panel === 1 ? 'on' : ''}"></span></div></div>`;
+    fit();
   };
-  main.addEventListener('click', onClick);
+  const fit = () => requestAnimationFrame(() => {
+    const box = main.querySelector('.hall-bk'), bk = box && box.querySelector('.bk');
+    if (!bk) return;
+    const sc = Math.min(1.6, box.clientWidth / bk.offsetWidth, (window.innerHeight - box.getBoundingClientRect().top - 40) / bk.offsetHeight);
+    bk.style.transform = `scale(${Math.max(0.3, sc)})`; bk.style.transformOrigin = 'top left';
+    box.style.height = bk.offsetHeight * Math.max(0.3, sc) + 'px';
+  });
+  const stop = watchTournament(d => { data = d; draw(); }, () => {});
+  const rot = setInterval(() => { panel = 1 - panel; draw(); }, 20000);
   const tick = setInterval(() => { const c = main.querySelector('.clock'); if (c) c.textContent = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); }, 15000);
-  return () => { stop(); clearInterval(tick); main.removeEventListener('click', onClick); document.body.classList.remove('hall'); };
+  const onClick = e => { if (e.target.closest('[data-fs]')) { const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().catch(() => {}); } };
+  main.addEventListener('click', onClick);
+  window.addEventListener('resize', fit);
+  main.innerHTML = '<p class="muted pd">Lade Turnier …</p>';
+  return () => { stop(); clearInterval(rot); clearInterval(tick); main.removeEventListener('click', onClick); window.removeEventListener('resize', fit); document.body.classList.remove('hall'); };
 }
