@@ -15,7 +15,7 @@ const ERR = {
   not_finished: 'Das Spiel ist noch nicht beendet.',
 };
 
-export async function startScorer(root, pin, onExit) {
+export async function startScorer(root, pin, onExit, expectBoard) {
   const S = {
     pin, matchId: null, t: null, m: null, names: ['', ''], cfg: null,
     visits: [], bulls: {}, queue: [], busy: false, online: true,
@@ -26,6 +26,7 @@ export async function startScorer(root, pin, onExit) {
   // ---------- Laden ----------
   const login = await rpc('ref_login', { p_pin: pin });
   if (!login.ok) return { error: login.error };
+  if (expectBoard && login.board && login.board !== expectBoard) return { error: 'wrong_board', board: login.board };
   S.matchId = login.match_id;
   S.queue = store.get('vynen-q-' + S.matchId, []);
   await resync(true);

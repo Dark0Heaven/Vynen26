@@ -123,3 +123,31 @@ body.scoring main{max-width:620px;margin:0 auto;padding:8px 10px 12px;display:fl
   padding:10px 16px;border-radius:10px;max-width:min(92vw,480px);text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 @media (max-width:380px){.quick{grid-template-columns:repeat(5,1fr)}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Turnierleitung */
+.small{font-size:14px}
+.btn.sm{min-height:40px;font-size:14px;padding:6px 12px}
+.adm-box{max-width:420px;margin:0 auto;padding:24px 16px}
+.adm-box h2{font-size:30px;font-weight:800;text-transform:uppercase;margin:0 0 12px}
+.form{display:flex;flex-direction:column;gap:8px}
+.form.wide{max-width:none}
+.form label{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+.form label.chk{display:flex;align-items:center;gap:10px;font-size:16px;letter-spacing:.04em;color:var(--fg);min-height:44px}
+input,select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:17px;min-height:44px;width:100%}
+input[type=checkbox]{width:22px;height:22px;min-height:0;accent-color:var(--red)}
+textarea{line-height:1.4;resize:vertical}
+input:focus,select:focus,textarea:focus{border-color:var(--red);outline:none}
+.note{background:var(--panel2);border-left:3px solid var(--gold);padding:8px 12px;border-radius:6px;margin:10px 0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:4px 12px}
+.adm-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.adm-tabs{max-width:420px;margin:8px 0}
+.tblwrap{overflow-x:auto}
+.cfg{border-collapse:collapse;width:100%;min-width:520px}
+.cfg th,.cfg td{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+.cfg thead th{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.cfg tbody th{font-weight:700;white-space:nowrap}
+.pinline{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+.pinline b{font-family:var(--num);font-size:40px;line-height:1;letter-spacing:.12em;color:var(--gold);flex:1}
+.adm-q li{align-items:center;flex-wrap:wrap}
+.bbtns{display:flex;flex-wrap:wrap;gap:6px}
+.pinbox .pad .btn.big{min-height:72px;font-size:32px}
