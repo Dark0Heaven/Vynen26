@@ -1,0 +1,22 @@
+# Hält das kostenlose Supabase-Projekt aktiv (pausiert sonst nach 7 Tagen ohne Datenbankanfragen)
+name: Supabase keepalive
+
+on:
+  schedule:
+    - cron: '37 4 */2 * *'   # alle 2 Tage, 04:37 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Datenbank anfragen
+        run: |
+          URL=$(grep -oP "SUPABASE_URL = '\K[^']+" <<< "$(curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/js/config.js)")
+          KEY=$(grep -oP "SUPABASE_KEY = '\K[^']+" <<< "$(curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/js/config.js)")
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/rest/v1/tournaments?select=id&limit=1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+          echo "Antwort: $code"
+          test "$code" = "200"
