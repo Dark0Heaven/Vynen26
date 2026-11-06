@@ -8,6 +8,11 @@ const ERR = {
   board_busy: 'Auf diesem Board läuft bereits ein Spiel.',
   bad_board: 'Dieses Board gibt es nicht.',
   already_started: 'Auf diesem Spiel wurde schon geworfen. Freigeben geht nicht mehr.',
+  next_started: 'Das Folgespiel läuft schon oder ist beendet. Erst dieses zurücksetzen.',
+  bad_result: 'Ungültiges Ergebnis: Ein Spieler braucht genau die nötigen Legs, der andere weniger.',
+  match_running: 'Der Spieler steht gerade in einem laufenden Spiel. Erst das Ergebnis eintragen oder das Spiel zurücksetzen.',
+  no_free_slot: 'Kein Freilos mehr frei, in das nachgemeldet werden kann (oder das Folgespiel läuft schon).',
+  empty_name: 'Bitte einen Namen eingeben.',
   min_2_players: 'Mindestens zwei Spieler eintragen.',
   max_128_players: 'Maximal 128 Spieler.',
 };
@@ -92,13 +97,14 @@ export async function startAdmin(main) {
   function draw() {
     const tabs = `<div class="seg adm-tabs" role="group">
       <button class="${tab === 'boards' ? 'on' : ''}" data-tab="boards" ${data ? '' : 'disabled'}>Boards</button>
+      <button class="${tab === 'fix' ? 'on' : ''}" data-tab="fix" ${data ? '' : 'disabled'}>Korrekturen</button>
       <button class="${tab === 'new' ? 'on' : ''}" data-tab="new">Neues Turnier</button></div>`;
-    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><button class="btn sm" id="lo">Abmelden</button></div>
+    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><a class="btn sm" href="#halle">Hallen-Anzeige</a><button class="btn sm" id="lo">Abmelden</button></div></div>
       ${tabs}${msg ? `<p class="note" role="alert">${esc(msg)}</p>` : ''}<div id="body"></div></div>`;
     main.querySelector('#lo').onclick = async () => { await sb.auth.signOut(); reload(); };
     main.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; draw(); });
     const body = main.querySelector('#body');
-    if (tab === 'new') newForm(body); else boards(body);
+    if (tab === 'new') newForm(body); else if (tab === 'fix') fixes(body); else boards(body);
   }
 
   function boards(body) {
@@ -137,6 +143,64 @@ export async function startAdmin(main) {
         if (b.dataset.un) { await rpc('admin_unassign', { p_match: b.dataset.un }); msg = 'Board freigegeben.'; }
         await loadAll(); draw();
       } catch (err) { msg = errText(err); draw(); }
+    };
+  }
+
+  // ---------- Korrekturen ----------
+  function fixes(body) {
+    const { t, players, matches } = data;
+    const nm = id => esc((players.find(p => p.id === id) || {}).name || 'offen');
+    const shown = matches.filter(m => m.player_a && m.player_b && m.status !== 'pending')
+      .sort((a, b) => a.round - b.round || (a.kind > b.kind ? 1 : -1) || a.idx - b.idx);
+    const label = { ready: 'Spielbereit', live: 'Läuft', review: 'Wartet auf Bestätigung', done: 'Beendet', wo: 'Kampflos', bye: 'Freilos' };
+    body.innerHTML = `
+      <h2 class="sec">Spiele</h2>
+      <p class="muted small">Ergebnis von Hand setzen (z. B. wenn ohne Scorer gespielt wurde) oder ein Spiel komplett zurücksetzen. Zurücksetzen löscht die Aufnahmen dieses Spiels.</p>
+      <ol class="list fixlist">${shown.map(m => {
+        const need = Math.ceil(roundCfg(t, m).bo / 2);
+        const opts = n => Array.from({ length: need + 1 }, (_, i) => `<option ${i === n ? 'selected' : ''}>${i}</option>`).join('');
+        return `<li><div><b>${nm(m.player_a)}</b> <i>vs</i> <b>${nm(m.player_b)}</b>
+          <div class="muted small">${esc(roundName(t, m))} · ${label[m.status] || m.status}${m.status === 'done' ? ` · ${m.legs_a}:${m.legs_b}` : ''} · First to ${need}</div></div>
+          <div class="bbtns"><select data-la="${m.id}" aria-label="Legs ${nm(m.player_a)}">${opts(m.legs_a)}</select><span>:</span>
+          <select data-lb="${m.id}" aria-label="Legs ${nm(m.player_b)}">${opts(m.legs_b)}</select>
+          <button class="btn sm pri" data-set="${m.id}">Setzen</button>
+          ${m.status !== 'ready' ? `<button class="btn sm" data-reset="${m.id}">Zurücksetzen</button>` : ''}</div></li>`;
+      }).join('') || '<li class="muted">Noch keine Spiele mit zwei Spielern.</li>'}</ol>
+      <h2 class="sec">Spieler</h2>
+      <form id="addf" class="bbtns addrow"><input id="addn" placeholder="Name für Nachmeldung" maxlength="40" aria-label="Name für Nachmeldung" required>
+        <button class="btn sm pri" type="submit">Nachmelden (in ein Freilos)</button></form>
+      <ol class="list fixlist">${players.map(p => `<li><div><span class="muted">${p.seed}.</span>
+        <input class="inl" data-name="${p.id}" value="${esc(p.name)}" maxlength="40" aria-label="Name von Spieler ${p.seed}">
+        ${p.withdrawn ? '<span class="st">Zurückgezogen</span>' : ''}</div>
+        <div class="bbtns"><button class="btn sm" data-ren="${p.id}">Umbenennen</button>
+        ${p.withdrawn ? '' : `<button class="btn sm" data-wd="${p.id}">Zurückziehen</button>`}</div></li>`).join('')}</ol>`;
+    let confirmKey = '';
+    body.onclick = async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      const d = b.dataset;
+      const ask = (key, text) => { if (confirmKey === key) { confirmKey = ''; return true; } confirmKey = key; b.textContent = text; b.classList.add('warn'); return false; };
+      try {
+        if (d.set) {
+          const la = Number(body.querySelector(`[data-la="${d.set}"]`).value), lb = Number(body.querySelector(`[data-lb="${d.set}"]`).value);
+          await rpc('admin_set_result', { p_match: d.set, p_legs_a: la, p_legs_b: lb }); msg = `Ergebnis ${la}:${lb} gesetzt.`;
+        } else if (d.reset) {
+          if (!ask('r' + d.reset, 'Wirklich zurücksetzen?')) return;
+          await rpc('admin_reset_match', { p_match: d.reset }); msg = 'Spiel zurückgesetzt.';
+        } else if (d.ren) {
+          const v = body.querySelector(`[data-name="${d.ren}"]`).value;
+          await rpc('admin_rename', { p_player: d.ren, p_name: v }); msg = 'Name geändert.';
+        } else if (d.wd) {
+          if (!ask('w' + d.wd, 'Wirklich zurückziehen?')) return;
+          await rpc('admin_withdraw', { p_player: d.wd }); msg = 'Spieler zurückgezogen. Offene Spiele gehen kampflos an den Gegner.';
+        } else return;
+        await loadAll(); draw();
+      } catch (err) { msg = errText(err); draw(); }
+    };
+    body.querySelector('#addf').onsubmit = async e => {
+      e.preventDefault();
+      try { await rpc('admin_add_player', { p_tournament: t.id, p_name: body.querySelector('#addn').value });
+        msg = 'Spieler nachgemeldet.'; await loadAll(); draw(); }
+      catch (err) { msg = errText(err); draw(); }
     };
   }
 

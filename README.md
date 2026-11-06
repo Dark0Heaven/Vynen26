@@ -13,5 +13,5 @@ Turnier-App für das Neujahrsdart-Turnier „Vynen 26“: Live-Spielstand für a
 ## Status
 - [x] Datenbank, Spiellogik, Scorer, Live-Ansicht
 - [x] Turnierleitung: Login, Turnier anlegen, Boards + PINs vergeben
-- [ ] Korrekturen durch die Turnierleitung (Ergebnis ändern, Rückzug)
-- [ ] Turnierbaum, Tabelle, Highlights, Hallen-Anzeige
+- [x] Korrekturen: Ergebnis setzen, Spiel zurücksetzen, umbenennen, zurückziehen (w. o.), nachmelden
+- [x] Turnierbaum, Tabelle, Highlights (automatisch aus dem Scorer), Hallen-Anzeige (`#halle`)
