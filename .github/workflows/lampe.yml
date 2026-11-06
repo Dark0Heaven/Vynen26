@@ -1,0 +1,27 @@
+# „Lampe“: schaltet jeden Monat um (an ↔ aus) und erzeugt so einen Commit.
+# Dadurch bleibt das Repo aktiv, und GitHub schaltet den Supabase-Keepalive nicht nach 60 Tagen ab.
+name: Lampe umschalten
+
+on:
+  schedule:
+    - cron: '23 3 1 * *'   # am 1. jedes Monats, 03:23 UTC (ca. alle 30 Tage)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  toggle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lampe umschalten
+        run: |
+          f=.github/lampe.txt
+          if [ "$(cat $f 2>/dev/null)" = "an" ]; then echo aus > $f; else echo an > $f; fi
+          echo "Lampe ist jetzt: $(cat $f)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $f
+          git commit -m "Lampe: $(cat $f)"
+          git push
