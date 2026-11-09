@@ -3,6 +3,7 @@ import { roundCfg, roundName, compute, OUT_LABEL } from './rules.js';
 import { startScorer } from './scorer.js';
 import { startAdmin } from './admin.js';
 import { live, baum, tabelle, halle } from './views.js';
+import { watchTheme } from './theme.js';
 
 const main = document.getElementById('main');
 const nav = document.getElementById('nav');
@@ -107,4 +108,5 @@ async function openScorer(pin, board, fromSaved) {
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+watchTheme();
 route();

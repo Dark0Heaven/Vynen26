@@ -1,6 +1,7 @@
 // Turnierleitung: Login, Turnier anlegen, Spiele auf Boards legen und PINs vergeben.
 import { sb, rpc, latestTournament, loadTournament, loadVisits, esc } from './db.js';
 import { swissStandings, swissPairing, suggestRounds } from './swiss.js';
+import { setTheme, currentTheme } from './theme.js';
 import { roundCfg, roundName, OUT_LABEL } from './rules.js';
 
 const ERR = {
@@ -112,9 +113,16 @@ export async function startAdmin(main) {
       <button class="${tab === 'boards' ? 'on' : ''}" data-tab="boards" ${data ? '' : 'disabled'}>Boards</button>
       <button class="${tab === 'fix' ? 'on' : ''}" data-tab="fix" ${data ? '' : 'disabled'}>Korrekturen</button>
       <button class="${tab === 'new' ? 'on' : ''}" data-tab="new">Neues Turnier</button></div>`;
-    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><a class="btn sm" href="#halle">Hallen-Anzeige</a><button class="btn sm" id="lo">Abmelden</button></div></div>
+    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><button class="btn sm theme-btn" id="th" ${data ? '' : 'disabled'}>${currentTheme() === 'bigfish' ? 'Design: Vynen' : 'Design: Big Fish VyMa'}</button><a class="btn sm" href="#halle">Hallen-Anzeige</a><button class="btn sm" id="lo">Abmelden</button></div></div>
       ${tabs}${msg ? `<p class="note" role="alert">${esc(msg)}</p>` : ''}<div id="body"></div></div>`;
     main.querySelector('#lo').onclick = async () => { await sb.auth.signOut(); reload(); };
+    main.querySelector('#th').onclick = async () => {
+      const next = currentTheme() === 'bigfish' ? 'vynen' : 'bigfish';
+      try { await rpc('admin_set_theme', { p_tournament: data.t.id, p_theme: next }); setTheme(next);
+        msg = next === 'bigfish' ? 'Big Fish VyMa Design ist für alle aktiv.' : 'Vynen Design ist für alle aktiv.'; }
+      catch (err) { msg = errText(err); }
+      draw();
+    };
     main.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; draw(); });
     const body = main.querySelector('#body');
     if (tab === 'new') newForm(body); else if (tab === 'fix') fixes(body); else boards(body);

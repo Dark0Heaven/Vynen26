@@ -1,7 +1,7 @@
 // Service Worker: hält die App-Dateien offline vor. Daten (Supabase) laufen immer übers Netz.
-const CACHE = 'vynen-v5';
+const CACHE = 'vynen-v6';
 const FILES = ['./', './index.html', './css/app.css', './js/app.js', './js/scorer.js', './js/rules.js',
-  './js/db.js', './js/config.js', './js/admin.js', './js/data.js', './js/views.js', './js/swiss.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
+  './js/db.js', './js/config.js', './js/admin.js', './js/data.js', './js/views.js', './js/swiss.js', './js/theme.js', './img/bigfish.png', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

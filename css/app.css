@@ -277,3 +277,24 @@ body.hall .top{display:none}
 .hall-tbl .tbl td{font-size:clamp(18px,1.5vw,26px)}
 
 [hidden]{display:none!important}
+
+/* ===== Design „Big Fish VyMa“ (blau) ===== */
+.bf-logo,.bt-b{display:none}
+.brand{display:inline-flex;align-items:center;gap:8px}
+body.theme-bigfish{
+  --bg:#06101f; --panel:#0c1a33; --panel2:#132544; --line:#1f3a66;
+  --fg:#eef5ff; --muted:#9db4d6; --dim:#6582ab;
+  --red:#1677ff; --red-soft:#5aa9ff; --gold:#7fd3ff; --win:#3ddc97;
+  background:radial-gradient(ellipse at top,#0b2148 0%,var(--bg) 60%) fixed var(--bg);
+}
+body.theme-bigfish .bf-logo{display:block}
+body.theme-bigfish .bt-v{display:none}
+body.theme-bigfish .bt-b{display:inline}
+body.theme-bigfish .brand .bf-logo{width:40px;height:40px}
+body.theme-bigfish .top{background:rgba(6,16,31,.92);border-bottom-color:var(--line)}
+body.theme-bigfish .pc.on{background:#0d2449}
+body.theme-bigfish .row.w .lg,body.theme-bigfish .pc.on .pc-legs{color:#fff}
+body.theme-bigfish .seg button.on{background:var(--fg);color:#06101f}
+.hall-logo{width:clamp(64px,6vw,110px);height:auto;flex:none}
+.theme-btn{border-color:#1677ff;color:#5aa9ff}
+body.theme-bigfish .theme-btn{border-color:#e3121e;color:#ff5a62}
