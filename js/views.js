@@ -178,7 +178,7 @@ export function tabelle(main) {
       ${board('Kürzestes Leg', by('best', v => v + ' Darts', true), 'Noch kein Leg beendet.')}
       </div>
       ${d.t.mode === 'swiss' ? `<h2 class="sec">Tabelle · Schweizer System</h2>${swissTable(d)}
-      <p class="muted small">Sieg 2 Punkte (auch Freilos und kampflos). Bei Gleichstand zählen Buchholz (Punkte aller Gegner), Leg-Differenz und Average. HF = höchstes Finish ab 101.</p></div>` : ''}
+      <p class="muted small">Sieg 1 Punkt (auch Freilos und kampflos). Bei Gleichstand zählen Buchholz (Punkte aller Gegner), Leg-Differenz und Average. HF = höchstes Finish ab 101.</p></div>` : ''}
       ${d.t.mode === 'swiss' ? '' : `<h2 class="sec">Tabelle</h2>
       <div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Status</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th><th>HF</th>
       ${BUCKETS.map(b => `<th>${b === 180 ? '180' : b + '+'}</th>`).join('')}</tr></thead><tbody>

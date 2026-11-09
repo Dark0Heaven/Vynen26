@@ -1,6 +1,6 @@
 // Schweizer System: Tabelle und Auslosung (rein rechnerisch, ohne Datenbankzugriff)
 
-// Tabelle: Punkte (2 je Sieg inkl. Freilos/kampflos + Startpunkte), dann Buchholz, Leg-Differenz, Average
+// Tabelle: Punkte (1 je Sieg inkl. Freilos/kampflos + Startpunkte), dann Buchholz, Leg-Differenz, Average
 export function swissStandings(players, matches, visits) {
   const sw = matches.filter(m => m.kind === 'sw');
   const S = {};
@@ -8,11 +8,11 @@ export function swissStandings(players, matches, visits) {
     pts: p.start_points || 0, buch: 0, sp: 0, s: 0, n: 0, lf: 0, la: 0, opps: new Set(), hadBye: false, pp: 0, darts: 0, avg: 0 };
   for (const m of sw) {
     const A = S[m.player_a], B = S[m.player_b];
-    if (m.status === 'bye') { if (A) { A.pts += 2; A.s++; A.hadBye = true; } continue; }
+    if (m.status === 'bye') { if (A) { A.pts += 1; A.s++; A.hadBye = true; } continue; }
     if (A && B) { A.opps.add(B.id); B.opps.add(A.id); }
     if (m.status === 'done' || m.status === 'wo') {
       const W = S[m.winner];
-      if (W) { W.pts += 2; W.s++; }
+      if (W) { W.pts += 1; W.s++; }
       const L = m.winner === m.player_a ? B : A;
       if (L) L.n++;
       if (m.status === 'done' && A && B) {

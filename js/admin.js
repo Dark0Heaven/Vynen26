@@ -200,7 +200,7 @@ export async function startAdmin(main) {
     if (preview) {
       h += `</div><p class="small">Vorschau Runde ${sw.rounds + 1}${preview.rematch ? ' · <b class="warn-t">Ohne Wiederholung nicht lösbar, enthält eine schon gespielte Paarung</b>' : ''}:</p>
         <ol class="list">${preview.pairs.map(([a, b]) => `<li><span>${nm(a)} <i>vs</i> ${nm(b)}</span></li>`).join('')}
-        ${preview.bye ? `<li><span>${nm(preview.bye)}</span><span class="muted">Freilos (2 Punkte)</span></li>` : ''}</ol>
+        ${preview.bye ? `<li><span>${nm(preview.bye)}</span><span class="muted">Freilos (1 Punkt)</span></li>` : ''}</ol>
         <div class="bbtns"><button class="btn pri" data-sw="go">Auslosung bestätigen</button><button class="btn" data-sw="cancel">Abbrechen</button></div>`;
     } else if (sw.open) {
       h += `<span class="muted small">Runde läuft – Auslosung nach dem letzten Spiel</span></div>`;
