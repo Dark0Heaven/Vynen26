@@ -1,5 +1,5 @@
 // Service Worker: hält die App-Dateien offline vor. Daten (Supabase) laufen immer übers Netz.
-const CACHE = 'vynen-v7';
+const CACHE = 'vynen-v8';
 const FILES = ['./', './index.html', './css/app.css', './js/app.js', './js/scorer.js', './js/rules.js',
   './js/db.js', './js/config.js', './js/admin.js', './js/data.js', './js/views.js', './js/swiss.js', './js/theme.js', './img/bigfish.png', './img/vynen26.png', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
@@ -16,7 +16,7 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (url.hostname.endsWith('supabase.co')) return;
   e.respondWith(
-    fetch(e.request).then(r => {
+    fetch(url.origin === location.origin ? new Request(e.request, { cache: 'no-cache' }) : e.request).then(r => {
       if (r.ok && (url.origin === location.origin || url.hostname.includes('jsdelivr') || url.hostname.includes('gstatic') || url.hostname.includes('googleapis'))) {
         const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy));
       }
