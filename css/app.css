@@ -298,3 +298,8 @@ body.theme-bigfish .seg button.on{background:var(--fg);color:#06101f}
 .hall-logo{width:clamp(64px,6vw,110px);height:auto;flex:none}
 .theme-btn{border-color:#1677ff;color:#5aa9ff}
 body.theme-bigfish .theme-btn{border-color:#e3121e;color:#ff5a62}
+
+/* Vynen-26-Logo nur im Vynen-Design */
+.v-logo{display:block;height:auto}
+.brand .v-logo{width:38px}
+body.theme-bigfish .v-logo{display:none}

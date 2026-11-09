@@ -211,7 +211,7 @@ export function halle(main) {
           ${t180.map(p => `<li><span>180er · ${esc(p.name)}</span><b>${p.t180}×</b></li>`).join('')}
           ${!hfs.length && !t180.length ? '<li class="muted">Noch keine Highlights.</li>' : ''}</ol></section></div>`;
     main.innerHTML = `<div class="hall-wrap">
-      <header class="hall-h"><img class="bf-logo hall-logo" src="img/bigfish.png" alt="Big Fish VyMa"><h1>${esc(d.t.name)}</h1><span class="clock">${now}</span>
+      <header class="hall-h"><img class="v-logo hall-logo" src="img/vynen26.png" alt="Vynen 26"><img class="bf-logo hall-logo" src="img/bigfish.png" alt="Big Fish VyMa"><h1>${esc(d.t.name)}</h1><span class="clock">${now}</span>
         <button class="btn sm" data-fs type="button">Vollbild</button><a class="btn sm" href="#live">Schließen</a></header>
       ${champ(d)}
       <div class="hall-boards b${Math.min(d.t.boards, 8)}">${boards.join('')}</div>
