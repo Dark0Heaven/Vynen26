@@ -1,5 +1,5 @@
 // Service Worker: hält die App-Dateien offline vor. Daten (Supabase) laufen immer übers Netz.
-const CACHE = 'vynen-v10';
+const CACHE = 'vynen-v11';
 const FILES = ['./', './index.html', './css/app.css', './js/app.js', './js/scorer.js', './js/rules.js',
   './js/db.js', './js/config.js', './js/admin.js', './js/data.js', './js/views.js', './js/swiss.js', './js/theme.js', './js/extra.js', './img/qr-live.png', './img/bigfish.png', './img/vynen26.png', './img/fav-vynen.png', './img/fav-bigfish.png', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 

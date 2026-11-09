@@ -31,7 +31,7 @@ const ERR = {
 const errText = e => ERR[(e && (e.message || '').trim())] || (e && e.message) || 'Unbekannter Fehler.';
 
 export async function startAdmin(main) {
-  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null;
+  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null, bpins = [];
 
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return loginView();
@@ -108,6 +108,7 @@ export async function startAdmin(main) {
       data.visits = await loadVisits(data.matches.filter(m => m.kind === 'sw').map(m => m.id));
       data.sw = swissStandings(data.players, data.matches, data.visits);
     }
+    const bp = await sb.from('board_pins').select('*').order('board'); bpins = bp.data || [];
     const ids = data.matches.filter(m => ['live', 'review'].includes(m.status)).map(m => m.id);
     pins = {};
     if (ids.length) {
@@ -165,6 +166,17 @@ export async function startAdmin(main) {
         <button class="btn sm" data-un="${m.id}">Freigeben</button></div></article>`;
     }
     h += `</div>`;
+    const now = new Date();
+    h += `<h2 class="sec">Tablet-PINs (Board-PIN, 24 h)</h2><p class="muted small">Einmal pro Tablet eingeben (Schiri → Board-PIN). Die 24 Stunden laufen ab der ersten Eingabe. Danach öffnet jedes Spiel auf dem Board automatisch, ohne Spiel-PIN. „Neu“ meldet das Tablet ab.</p><div class="bpins">`;
+    for (let b = 1; b <= t.boards; b++) {
+      const x = bpins.find(p => p.board === b);
+      const st = !x ? 'Noch keiner' : !x.expires_at ? 'Noch nicht benutzt'
+        : new Date(x.expires_at) < now ? '<span class="warn-t">Abgelaufen</span>'
+        : 'Aktiv bis ' + new Date(x.expires_at).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+      h += `<div class="bpin"><div class="h"><span class="bd-no">${b}</span><button class="btn sm ${x ? '' : 'pri'}" data-bpin="${b}">${x ? 'Neu' : 'Erzeugen'}</button></div>
+        ${x ? `<b class="pv">${esc(x.pin)}</b>` : ''}<span class="muted small">${st}</span></div>`;
+    }
+    h += `</div>`;
     if (t.mode === 'swiss') h += swissPanel();
     h += `<h2 class="sec">Spielbereit</h2>`;
     if (!ready.length) h += '<p class="muted">Kein Spiel wartet gerade.</p>';
@@ -181,6 +193,12 @@ export async function startAdmin(main) {
           b.disabled = true;
           const pin = await rpc('admin_assign_board', { p_match: b.dataset.as, p_board: Number(b.dataset.b) });
           msg = `Board ${b.dataset.b} gestartet · PIN ${pin}`;
+        }
+        if (b.dataset.bpin) {
+          const ex = bpins.find(p => p.board === Number(b.dataset.bpin));
+          if (ex && !b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Tablet abmelden?'; b.classList.add('warn'); return; }
+          const pin = await rpc('admin_board_pin', { p_board: Number(b.dataset.bpin) });
+          msg = `Board-PIN für Board ${b.dataset.bpin}: ${pin}`;
         }
         if (b.dataset.un) { await rpc('admin_unassign', { p_match: b.dataset.un }); msg = 'Board freigegeben.'; }
         if (b.dataset.sw === 'preview') { preview = swissPairing(data.sw); if (!preview) msg = 'Keine gültige Auslosung möglich.'; draw(); return; }

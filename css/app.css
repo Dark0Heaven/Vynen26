@@ -372,3 +372,16 @@ a.pl:hover{color:var(--red-soft)}
 }
 .adm-tabs .cnt{background:var(--red);color:#fff}
 .addrow input[type=checkbox]{flex:none;min-width:0;width:22px}
+
+/* Board-PIN (Tablet, 24 h) */
+.pinmode{flex:none}
+.pin.p6{gap:8px}
+.pin.p6 span{width:44px;height:58px}
+.pinbox.wait .big-t{font-size:26px;font-weight:800;text-transform:uppercase;margin:0}
+.wait-dot{width:18px;height:18px;border-radius:50%;background:var(--win);margin:6px auto 0;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+@media (prefers-reduced-motion:reduce){.wait-dot{animation:none}}
+.bpins{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:10px}
+.bpin{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px;display:flex;flex-direction:column;gap:6px}
+.bpin .h{display:flex;justify-content:space-between;align-items:center}
+.bpin b.pv{font-family:var(--num);font-size:38px;line-height:1;letter-spacing:.14em;color:var(--gold)}

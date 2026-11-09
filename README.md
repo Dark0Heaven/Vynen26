@@ -5,7 +5,7 @@ Turnier-App für das Neujahrsdart-Turnier „Vynen 26“: Live-Spielstand für a
 - **Live-Ansicht** (`#live`): Boards mit Restpunkten und Legs, wartende Spiele, letzte Ergebnisse – aktualisiert sich selbst.
 - **Schiri-Scorer** (`#schiri`): PIN pro Spiel, Ausbullen (auch vor dem Decider), Eingabe pro Aufnahme oder Einzeldart, Rückgängig, Checkout-Vorschlag, Kontrollseite vor dem Abschluss. Funktioniert bei Netzausfall weiter und überträgt nach.
 - **Anmeldung** (`#anmelden`): online mit Name und Handynummer, Anmeldeschluss einstellbar; in der Leitung Liste mit Haken „bezahlt“, Kassenstand, Nachmelden vor Ort, Übernahme ins Turnier, Hinweis ab 32 Spielern.
-- **Tablet-Modus** (`#schiri/1` … `#schiri/4`): Tablet fest an ein Board, startet direkt in der PIN-Eingabe.
+- **Tablet-Modus** (`#schiri/1` … `#schiri/4`): Tablet fest an ein Board. Mit dem Board-PIN (6-stellig, 24 h ab erster Eingabe) öffnet jedes Spiel auf dem Board automatisch, ohne Spiel-PIN.
 - **Spielerprofile** (`#spieler/…`): Namen in der Tabelle antippen.
 - **Notfall-Paket** (`#druck`): druckbarer Baum/Tabelle mit allen Spielen und Ergebnis-Datei (CSV).
 - **Testturnier** für die Generalprobe, mit einem Klick löschbar.
