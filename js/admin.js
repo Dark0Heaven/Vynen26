@@ -25,11 +25,13 @@ const ERR = {
   bad_rounds: 'Rundenzahl zwischen 1 und 20 wählen.',
   min_2_players: 'Mindestens zwei Spieler eintragen.',
   max_128_players: 'Maximal 128 Spieler.',
+  duplicate: 'Dieser Name ist schon angemeldet.',
+  not_test: 'Nur Testturniere können gelöscht werden.',
 };
 const errText = e => ERR[(e && (e.message || '').trim())] || (e && e.message) || 'Unbekannter Fehler.';
 
 export async function startAdmin(main) {
-  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null;
+  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null;
 
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return loginView();
@@ -90,7 +92,15 @@ export async function startAdmin(main) {
   function reload() { window.dispatchEvent(new HashChangeEvent('hashchange')); }
 
   // ---------- Daten ----------
+  async function loadRegs() {
+    const [r, s] = await Promise.all([
+      sb.from('registrations').select('*').order('created_at'),
+      sb.from('reg_settings').select('*').eq('id', 1).single(),
+    ]);
+    regs = r.data || []; regInfo = s.data || { open: true, deadline: null, fee: 10 };
+  }
   async function loadAll() {
+    await loadRegs().catch(() => {});
     const t = await latestTournament();
     if (!t) { data = null; tab = 'new'; return; }
     data = await loadTournament(t.id);
@@ -112,9 +122,11 @@ export async function startAdmin(main) {
     const tabs = `<div class="seg adm-tabs" role="group">
       <button class="${tab === 'boards' ? 'on' : ''}" data-tab="boards" ${data ? '' : 'disabled'}>Boards</button>
       <button class="${tab === 'fix' ? 'on' : ''}" data-tab="fix" ${data ? '' : 'disabled'}>Korrekturen</button>
+      <button class="${tab === 'reg' ? 'on' : ''}" data-tab="reg">Anmeldungen <span class="cnt">${regs.length}</span></button>
       <button class="${tab === 'new' ? 'on' : ''}" data-tab="new">Neues Turnier</button></div>`;
-    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><button class="btn sm theme-btn" id="th" ${data ? '' : 'disabled'}>${currentTheme() === 'bigfish' ? 'Design: Vynen' : 'Design: Big Fish VyMa'}</button><a class="btn sm" href="#halle">Hallen-Anzeige</a><button class="btn sm" id="lo">Abmelden</button></div></div>
-      ${tabs}${msg ? `<p class="note" role="alert">${esc(msg)}</p>` : ''}<div id="body"></div></div>`;
+    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><button class="btn sm theme-btn" id="th" ${data ? '' : 'disabled'}>${currentTheme() === 'bigfish' ? 'Design: Vynen' : 'Design: Big Fish VyMa'}</button><a class="btn sm" href="#halle">Hallen-Anzeige</a>${data ? '<a class="btn sm" href="#druck">Notfall-Paket</a>' : ''}<button class="btn sm" id="lo">Abmelden</button></div></div>
+      ${tabs}${data && data.t.is_test ? `<div class="note testbar"><span><b>Testturnier</b> · Generalprobe. Wenn ihr fertig seid, hier löschen. Danach ist wieder das echte Turnier aktiv.</span>
+        <button class="btn sm warn" id="deltest">Testturnier löschen</button></div>` : ''}${msg ? `<p class="note" role="alert">${esc(msg)}</p>` : ''}<div id="body"></div></div>`;
     main.querySelector('#lo').onclick = async () => { await sb.auth.signOut(); reload(); };
     main.querySelector('#th').onclick = async () => {
       const next = currentTheme() === 'bigfish' ? 'vynen' : 'bigfish';
@@ -123,9 +135,16 @@ export async function startAdmin(main) {
       catch (err) { msg = errText(err); }
       draw();
     };
-    main.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; draw(); });
+    main.querySelectorAll('[data-tab]').forEach(b => b.onclick = async () => { tab = b.dataset.tab; msg = ''; if (tab === 'reg') await loadRegs().catch(() => {}); draw(); });
+    const dt = main.querySelector('#deltest');
+    if (dt) dt.onclick = async () => {
+      if (!dt.dataset.sure) { dt.dataset.sure = '1'; dt.textContent = 'Wirklich alles vom Test löschen?'; return; }
+      try { await rpc('admin_delete_test', { p_tournament: data.t.id }); msg = 'Testturnier gelöscht.'; tab = 'boards'; await loadAll(); }
+      catch (err) { msg = errText(err); }
+      draw();
+    };
     const body = main.querySelector('#body');
-    if (tab === 'new') newForm(body); else if (tab === 'fix') fixes(body); else boards(body);
+    if (tab === 'new') newForm(body); else if (tab === 'reg') regTab(body); else if (tab === 'fix') fixes(body); else boards(body);
   }
 
   function boards(body) {
@@ -274,6 +293,67 @@ export async function startAdmin(main) {
     };
   }
 
+  // ---------- Anmeldungen ----------
+  function regTab(body) {
+    const paid = regs.filter(r => r.paid).length, fee = Number(regInfo.fee || 10);
+    const dl = regInfo.deadline || '';
+    body.innerHTML = `
+      <div class="kasse"><div><span>Angemeldet</span><b>${regs.length}</b></div><div><span>Bezahlt</span><b>${paid}</b></div>
+        <div><span>Offen</span><b>${regs.length - paid}</b></div><div><span>Kasse</span><b>${paid * fee} €</b></div></div>
+      ${regs.length >= 32 ? `<p class="note warnnote" role="alert">${regs.length} Spieler: Bei 4 Boards wird es zeitlich knapp. Weniger Legs in den frühen Runden oder Schweizer System mit wenigen Runden einplanen.</p>` : ''}
+      <div class="card regset"><label class="chk"><input type="checkbox" id="ro" ${regInfo.open ? 'checked' : ''}> Online-Anmeldung offen</label>
+        <label class="inl-l">Anmeldeschluss <input type="date" id="rd" value="${esc(dl)}"></label>
+        <button class="btn sm" id="rs">Speichern</button></div>
+      <h2 class="sec">Vor Ort anmelden</h2>
+      <form id="raf" class="bbtns addrow"><input id="ran" placeholder="Name" maxlength="40" aria-label="Name" required>
+        <input id="rap" placeholder="Handynummer (optional)" maxlength="30" type="tel" aria-label="Handynummer">
+        <label class="chk sm"><input type="checkbox" id="rapd" checked> bezahlt</label>
+        <button class="btn sm pri" type="submit">Hinzufügen</button></form>
+      <h2 class="sec">Liste</h2>
+      <ol class="list reglist">${regs.map((r, i) => `<li class="${r.paid ? 'pd-ok' : 'pd-no'}"><div><span class="muted">${i + 1}.</span> <b>${esc(r.name)}</b>
+          <span class="tag">${r.source === 'online' ? 'online' : 'vor Ort'}</span>
+          ${r.phone ? `<div class="muted small"><a href="tel:${esc(r.phone.replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a></div>` : ''}</div>
+        <div class="bbtns"><label class="paid"><input type="checkbox" data-paid="${r.id}" ${r.paid ? 'checked' : ''}> bezahlt</label>
+          <button class="btn sm" data-del="${r.id}">Entfernen</button></div></li>`).join('') || '<li class="muted">Noch keine Anmeldungen.</li>'}</ol>
+      ${regs.length >= 2 ? `<div class="bbtns"><button class="btn pri" id="take">Liste ins neue Turnier übernehmen</button><button class="btn" id="csvr">Liste als Datei</button></div>` : ''}`;
+    body.querySelector('#rs').onclick = async () => {
+      try { await rpc('admin_reg_settings', { p_open: body.querySelector('#ro').checked, p_deadline: body.querySelector('#rd').value || null }); msg = 'Anmeldung gespeichert.'; await loadRegs(); }
+      catch (err) { msg = errText(err); }
+      draw();
+    };
+    body.querySelector('#raf').onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const id = await rpc('admin_reg_add', { p_name: body.querySelector('#ran').value, p_phone: body.querySelector('#rap').value });
+        if (body.querySelector('#rapd').checked) await rpc('admin_reg_paid', { p_id: id, p_paid: true });
+        msg = 'Spieler angemeldet.'; await loadRegs();
+      } catch (err) { msg = errText(err); }
+      draw();
+    };
+    body.onchange = async e => {
+      const c = e.target.closest('[data-paid]'); if (!c) return;
+      try { await rpc('admin_reg_paid', { p_id: c.dataset.paid, p_paid: c.checked }); await loadRegs(); msg = ''; }
+      catch (err) { msg = errText(err); }
+      draw();
+    };
+    body.onclick = async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.del) {
+        if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Wirklich?'; b.classList.add('warn'); return; }
+        try { await rpc('admin_reg_delete', { p_id: b.dataset.del }); await loadRegs(); msg = 'Anmeldung entfernt.'; } catch (err) { msg = errText(err); }
+        draw();
+      }
+      if (b.id === 'take') { takeOver = regs.map(r => r.name); tab = 'new'; msg = ''; draw(); }
+      if (b.id === 'csvr') {
+        const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const csv = '﻿' + [['Nr', 'Name', 'Handy', 'Weg', 'Bezahlt'], ...regs.map((r, i) => [i + 1, r.name, r.phone || '', r.source === 'online' ? 'online' : 'vor Ort', r.paid ? 'ja' : 'nein'])]
+          .map(r => r.map(q).join(';')).join('\r\n');
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        a.download = 'vynen-anmeldungen.csv'; document.body.appendChild(a); a.click(); a.remove();
+      }
+    };
+  }
+
   function newForm(body) {
     const rn = (R, r) => ['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale'][R - 1 - r] || `Runde ${r + 1}`;
     const cfgRow = (key, label, d) => `<tr><th>${label}</th>
@@ -300,7 +380,10 @@ export async function startAdmin(main) {
         <div><label for="tb">Boards</label><select id="tb">${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option ${n === 4 ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
         <div><label for="ts">Setzliste</label><select id="ts"><option value="list">Reihenfolge wie eingegeben</option><option value="rand">Zufällig auslosen</option></select></div>
       </div>
-      <label for="tp">Spieler, einer pro Zeile</label><textarea id="tp" rows="10" placeholder="Max&#10;Anna&#10;Tim"></textarea>
+      <label for="tp">Spieler, einer pro Zeile</label>
+      ${regs.length ? `<button type="button" class="btn sm" id="fromreg">${regs.length} Anmeldungen einfügen</button>` : ''}
+      <textarea id="tp" rows="10" placeholder="Max&#10;Anna&#10;Tim"></textarea><div id="unpaid"></div>
+      <label class="chk"><input type="checkbox" id="tt"> Testturnier (Generalprobe – lässt sich danach mit einem Klick löschen)</label>
       <label class="chk" id="t3l"><input type="checkbox" id="t3" checked> Spiel um Platz 3</label>
       <div id="rc"></div>
       <button class="btn pri" type="submit">Turnier erstellen</button></form>`;
@@ -348,7 +431,17 @@ export async function startAdmin(main) {
       rc.innerHTML = `<p class="muted small info">${info}</p>
         <div class="tblwrap"><table class="cfg"><thead><tr><th>Runde</th><th>Best of</th><th>Start</th><th>Out</th><th>Double In</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     };
-    f.tp.oninput = drawCfg; f.t3.onchange = drawCfg; drawCfg();
+    const unpaid = () => {
+      const set = new Set(names().map(n => n.toLowerCase()));
+      const open = regs.filter(r => !r.paid && set.has(r.name.toLowerCase())).map(r => r.name);
+      const n = names().length;
+      body.querySelector('#unpaid').innerHTML = (open.length ? `<p class="note warnnote">Noch nicht bezahlt (${open.length}): ${open.map(esc).join(', ')}</p>` : '')
+        + (n >= 32 ? `<p class="note warnnote">${n} Spieler: Bei ${f.tb.value} Boards wird es zeitlich knapp.</p>` : '');
+    };
+    const fill = list => { f.tp.value = list.join('\n'); drawCfg(); unpaid(); };
+    const fr = body.querySelector('#fromreg'); if (fr) fr.onclick = () => fill(regs.map(r => r.name));
+    f.tp.oninput = () => { drawCfg(); unpaid(); }; f.t3.onchange = drawCfg; f.tb.onchange = unpaid; drawCfg();
+    if (takeOver) { fill(takeOver); takeOver = null; }
     f.onsubmit = async e => {
       e.preventDefault();
       let list = names();
@@ -368,7 +461,8 @@ export async function startAdmin(main) {
         try {
           await rpc('admin_create_swiss', { p_name: f.tn.value.trim(), p_date: f.td.value || null, p_boards: Number(f.tb.value),
             p_swiss: { rounds: Number(f.swr.value), end: f.swe.value, late: f.swl.value, cfg: get('sw') },
-            p_rounds: rounds, p_third: fin >= 2 && f.t3.checked, p_p3: fin >= 2 && f.t3.checked ? get('p3') : null, p_players: list });
+            p_rounds: rounds, p_third: fin >= 2 && f.t3.checked, p_p3: fin >= 2 && f.t3.checked ? get('p3') : null, p_players: list })
+            .then(id => f.tt.checked ? rpc('admin_set_test', { p_tournament: id, p_test: true }) : null);
           msg = 'Schweizer Turnier erstellt. Unter „Boards“ Runde 1 auslosen.'; tab = 'boards'; await loadAll(); draw();
         } catch (err) { msg = errText(err); draw(); }
         return;
@@ -377,7 +471,8 @@ export async function startAdmin(main) {
       const rounds = []; for (let r = 0; r < R; r++) rounds.push(get('r' + r));
       try {
         await rpc('admin_create_tournament', { p_name: f.tn.value.trim(), p_date: f.td.value || null, p_boards: Number(f.tb.value),
-          p_third: f.t3.checked, p_rounds: rounds, p_p3: f.t3.checked && R >= 2 ? get('p3') : null, p_players: list });
+          p_third: f.t3.checked, p_rounds: rounds, p_p3: f.t3.checked && R >= 2 ? get('p3') : null, p_players: list })
+          .then(id => f.tt.checked ? rpc('admin_set_test', { p_tournament: id, p_test: true }) : null);
         msg = 'Turnier erstellt.'; tab = 'boards'; await loadAll(); draw();
       } catch (err) { msg = errText(err); draw(); }
     };

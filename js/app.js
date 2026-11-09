@@ -4,6 +4,7 @@ import { startScorer } from './scorer.js';
 import { startAdmin } from './admin.js';
 import { live, baum, tabelle, halle } from './views.js';
 import { watchTheme } from './theme.js';
+import { anmelden, spieler, druck } from './extra.js';
 
 const main = document.getElementById('main');
 const nav = document.getElementById('nav');
@@ -11,12 +12,20 @@ let cleanup = null;
 
 function route() {
   if (cleanup) { cleanup(); cleanup = null; }
-  const h = location.hash.replace('#', '') || 'live';
+  let h = location.hash.replace('#', '');
+  // Tablet-Modus: #schiri/3 legt das Tablet fest auf Board 3 und startet künftig direkt im Schiri-Bereich
+  const tm = h.match(/^schiri\/(\d+)$/);
+  if (tm) { store.set('vynen-board', Number(tm[1])); store.set('vynen-tablet', true); store.del('vynen-pin'); location.replace('#schiri'); return; }
+  if (!h && store.get('vynen-tablet', false)) { location.replace('#schiri'); return; }
+  h = h || 'live';
   for (const a of nav.querySelectorAll('a')) a.setAttribute('aria-current', a.dataset.r === h ? 'page' : 'false');
   document.body.classList.toggle('scoring', h === 'schiri');
   if (h === 'schiri') return schiri();
   if (h === 'admin') return admin();
   main.onclick = null;
+  if (h === 'anmelden') { cleanup = anmelden(main); return; }
+  if (h === 'druck') { cleanup = druck(main); return; }
+  if (h.startsWith('spieler/')) { cleanup = spieler(main, h.slice(8)); return; }
   const view = { baum, tabelle, halle }[h] || live;
   cleanup = view(main);
 }
@@ -60,7 +69,7 @@ function pinEntry(board) {
   let pin = '', err = '';
   const draw = () => {
     main.innerHTML = `<div class="pinbox">
-      <h2>Board ${board}</h2><p class="muted">PIN für das nächste Spiel eingeben. Du bekommst ihn von der Turnierleitung.</p>
+      <h2>Board ${board}${store.get('vynen-tablet', false) ? ' <span class="tag gold">Tablet</span>' : ''}</h2><p class="muted">PIN für das nächste Spiel eingeben. Du bekommst ihn von der Turnierleitung.</p>
       <div class="pin" aria-live="polite">${[0, 1, 2, 3].map(i => `<span class="${pin[i] ? 'f' : ''}">${pin[i] ? '•' : ''}</span>`).join('')}</div>
       ${err ? `<p class="err" role="alert">${esc(err)}</p>` : ''}
       <div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button class="btn" data-k="${n}">${n}</button>`).join('')}
@@ -71,7 +80,7 @@ function pinEntry(board) {
   const onClick = async e => {
     const b = e.target.closest('button'); if (!b) return;
     const k = b.dataset.k;
-    if (k === 'board') { store.del('vynen-board'); main.onclick = null; return chooseBoard(); }
+    if (k === 'board') { store.del('vynen-board'); store.del('vynen-tablet'); main.onclick = null; return chooseBoard(); }
     if (k === 'del') pin = pin.slice(0, -1);
     else if (k !== 'ok' && pin.length < 4) pin += k;
     if (pin.length === 4 && k !== 'del') {

@@ -52,7 +52,7 @@ export function live(main) {
   return mount(main, d => {
     const boards = []; for (let b = 1; b <= d.t.boards; b++) boards.push(boardTile(d, b, false));
     const r = recent(d, 6);
-    return `<div class="wrap"><div class="adm-head"><h1 class="tt">${esc(d.t.name)}</h1><a class="btn sm" href="#halle">Hallen-Anzeige</a></div>${champ(d)}
+    return `<div class="wrap"><div class="adm-head"><h1 class="tt">${esc(d.t.name)}${d.t.is_test ? ' <span class="tag gold">Test</span>' : ''}</h1><a class="btn sm" href="#halle">Hallen-Anzeige</a></div>${champ(d)}
       <h2 class="sec">Boards</h2><div class="boards">${boards.join('')}</div>
       <h2 class="sec">Als Nächstes</h2>${queue(d, 8)}
       ${r ? `<h2 class="sec">Zuletzt beendet</h2>${r}` : ''}</div>`;
@@ -60,7 +60,7 @@ export function live(main) {
 }
 
 // ---------- Turnierbaum (mit Verbindungslinien) ----------
-function bracketHtml(d) {
+export function bracketHtml(d) {
   const { t, R } = d;
   const W = 210, H = 76, X = 46, U = H + 14, TOP = 34;
   const cy = (r, i) => TOP + U * Math.pow(2, r) * (i + 0.5);
@@ -148,7 +148,7 @@ function swissTable(d, limit) {
   return `<div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Pkt</th><th>Buchholz</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th>
     ${limit ? '' : `<th>HF</th>${BUCKETS.map(b => `<th>${b === 180 ? '180' : b + '+'}</th>`).join('')}`}</tr></thead><tbody>
     ${list.map(p => { const df = p.lf - p.la, x = st.get(p.id) || { sc: {}, hf: 0 }; return `<tr><td class="pos">${p.rank}</td>
-      <td>${esc(p.name)}${p.withdrawn ? ' <span class="st">Zurückgezogen</span>' : ''}${p.start ? ` <span class="muted small">(+${p.start} Start)</span>` : ''}</td>
+      <td><a class="pl" href="#spieler/${p.id}">${esc(p.name)}</a>${p.withdrawn ? ' <span class="st">Zurückgezogen</span>' : ''}${p.start ? ` <span class="muted small">(+${p.start} Start)</span>` : ''}</td>
       <td class="num pts">${p.pts}</td><td class="num">${p.buch}</td><td class="num">${p.sp}</td><td class="num">${p.s}</td><td class="num">${p.n}</td>
       <td class="num">${p.lf}:${p.la}</td><td class="num">${df > 0 ? '+' : df < 0 ? '−' : ''}${Math.abs(df)}</td><td class="num">${fmt(p.avg)}</td>
       ${limit ? '' : `<td class="num">${x.hf || '–'}</td>${BUCKETS.map(b => `<td class="num ${b === 180 && x.sc[b] ? 'hot' : ''}">${x.sc[b] || '–'}</td>`).join('')}`}</tr>`; }).join('')}
@@ -156,7 +156,7 @@ function swissTable(d, limit) {
 }
 
 // ---------- Tabelle & Highlights ----------
-const BUCKETS = [80, 100, 120, 140, 160, 180];
+export const BUCKETS = [80, 100, 120, 140, 160, 180];
 export function tabelle(main) {
   return mount(main, d => {
     const list = d.stats;
@@ -182,7 +182,7 @@ export function tabelle(main) {
       ${d.t.mode === 'swiss' ? '' : `<h2 class="sec">Tabelle</h2>
       <div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Status</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th><th>HF</th>
       ${BUCKETS.map(b => `<th>${b === 180 ? '180' : b + '+'}</th>`).join('')}</tr></thead><tbody>
-      ${list.map((p, i) => { const df = p.lf - p.la; return `<tr><td class="pos">${i + 1}</td><td>${esc(p.name)}</td><td>${status(p)}</td>
+      ${list.map((p, i) => { const df = p.lf - p.la; return `<tr><td class="pos">${i + 1}</td><td><a class="pl" href="#spieler/${p.id}">${esc(p.name)}</a></td><td>${status(p)}</td>
         <td class="num">${p.sp}</td><td class="num">${p.s}</td><td class="num">${p.n}</td><td class="num">${p.lf}:${p.la}</td>
         <td class="num">${df > 0 ? '+' : df < 0 ? '−' : ''}${Math.abs(df)}</td><td class="num">${fmt(p.avg)}</td><td class="num">${p.hf || '–'}</td>
         ${BUCKETS.map(b => `<td class="num ${b === 180 && p.sc[b] ? 'hot' : ''}">${p.sc[b] || '–'}</td>`).join('')}</tr>`; }).join('')}
@@ -209,7 +209,8 @@ export function halle(main) {
         <section><h2 class="sec">Highlights</h2><ol class="list">
           ${hfs.map(x => `<li><span>High Finish · ${esc(x.name)}</span><b>${x.v}</b></li>`).join('')}
           ${t180.map(p => `<li><span>180er · ${esc(p.name)}</span><b>${p.t180}×</b></li>`).join('')}
-          ${!hfs.length && !t180.length ? '<li class="muted">Noch keine Highlights.</li>' : ''}</ol></section></div>`;
+          ${!hfs.length && !t180.length ? '<li class="muted">Noch keine Highlights.</li>' : ''}</ol></section>
+        <section class="hall-qr"><img src="img/qr-live.png" alt="QR-Code zur Live-Ansicht"><div><b>Live auf dem Handy</b><span class="muted">vynen26.de</span></div></section></div>`;
     main.innerHTML = `<div class="hall-wrap">
       <header class="hall-h"><img class="v-logo hall-logo" src="img/vynen26.png" alt="Vynen 26"><img class="bf-logo hall-logo" src="img/bigfish.png" alt="Big Fish VyMa"><h1>${esc(d.t.name)}</h1><span class="clock">${now}</span>
         <button class="btn sm" data-fs type="button">Vollbild</button><a class="btn sm" href="#live">Schließen</a></header>
