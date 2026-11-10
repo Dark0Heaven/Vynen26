@@ -5,8 +5,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          for h in vynen26.de www.vynen26.de; do
-            echo "== $h"; dig +short A $h; dig +short CNAME $h
-            echo | openssl s_client -connect $h:443 -servername $h 2>/dev/null | openssl x509 -noout -subject -issuer -dates -ext subjectAltName || echo "kein Zertifikat"
-            curl -sI http://$h | head -3
-          done
+          sudo apt-get install -y -qq bind9-dnsutils >/dev/null 2>&1 || true
+          echo "== CAA"; dig +short CAA vynen26.de
+          echo "== DS"; dig +short DS vynen26.de @1.1.1.1
+          echo "== Validierung (1.1.1.1)"; dig vynen26.de A @1.1.1.1 +dnssec | grep -E "flags:|status:"
+          echo "== Validierung (8.8.8.8)"; dig vynen26.de A @8.8.8.8 +dnssec | grep -E "flags:|status:"
+          echo "== delv"; delv @8.8.8.8 vynen26.de A 2>&1 | head -3
+          echo "== Zert"; echo | openssl s_client -connect vynen26.de:443 -servername vynen26.de 2>/dev/null | openssl x509 -noout -subject
