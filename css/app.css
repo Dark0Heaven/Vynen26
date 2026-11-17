@@ -385,3 +385,4 @@ a.pl:hover{color:var(--red-soft)}
 .bpin{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px;display:flex;flex-direction:column;gap:6px}
 .bpin .h{display:flex;justify-content:space-between;align-items:center}
 .bpin b.pv{font-family:var(--num);font-size:38px;line-height:1;letter-spacing:.14em;color:var(--gold)}
+body.theme-bigfish .bf-logo{border-radius:8px}
