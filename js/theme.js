@@ -8,6 +8,11 @@ export function setTheme(th) {
   if (m) m.content = bf ? '#06101f' : '#111113';
   const fav = document.getElementById('fav');
   if (fav) fav.href = bf ? 'img/fav-bigfish.png' : 'img/fav-vynen.png';
+  // App-Symbol beim Installieren passend zum Design
+  const mani = document.getElementById('mani');
+  if (mani) mani.href = bf ? 'manifest-bigfish.webmanifest' : 'manifest.webmanifest';
+  const ati = document.getElementById('ati');
+  if (ati) ati.href = bf ? 'img/app-bigfish-180.png' : 'img/app-vynen-180.png';
   document.title = bf ? 'Big Fish VyMa · Dart' : 'Vynen Dart';
   store.set('vynen-theme', bf ? 'bigfish' : 'vynen');
 }
