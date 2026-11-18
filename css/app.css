@@ -390,3 +390,13 @@ body.theme-bigfish .bf-logo{border-radius:8px}
 .inst h3{margin:0 0 4px;font-size:22px;text-transform:uppercase}
 .inst-steps{margin:8px 0 0;padding-left:22px;font-size:17px;line-height:1.5}
 .inst .ico{display:inline-block;padding:0 4px;border:1px solid var(--line);border-radius:4px;font-size:14px}
+.prize{padding:12px 14px;margin-bottom:14px}
+.prize h3{margin:0 0 8px;font-size:20px;text-transform:uppercase}
+.prize input{width:110px}
+.pz-calc{margin:10px 0 8px;color:var(--muted)}
+.pz-calc b{color:var(--fg)}
+.pz-p{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pz-p div{background:var(--panel2);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column}
+.pz-p span{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.pz-p b{font-family:var(--num);font-size:34px;line-height:1.05}
+.pz-p .g1 b{color:var(--gold)}
