@@ -1,5 +1,5 @@
 // Turnierleitung: Login, Turnier anlegen, Spiele auf Boards legen und PINs vergeben.
-import { sb, rpc, latestTournament, loadTournament, loadVisits, esc, store } from './db.js';
+import { sb, rpc, latestTournament, loadTournament, loadVisits, esc } from './db.js';
 import { swissStandings, swissPairing, suggestRounds } from './swiss.js';
 import { setTheme, currentTheme } from './theme.js';
 import { roundCfg, roundName, OUT_LABEL } from './rules.js';
@@ -31,7 +31,7 @@ const ERR = {
 const errText = e => ERR[(e && (e.message || '').trim())] || (e && e.message) || 'Unbekannter Fehler.';
 
 export async function startAdmin(main) {
-  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null, bpins = [];
+  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null, bpins = [], costs = null, costTimer = null;
 
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return loginView();
@@ -98,6 +98,8 @@ export async function startAdmin(main) {
       sb.from('reg_settings').select('*').eq('id', 1).single(),
     ]);
     regs = r.data || []; regInfo = s.data || { open: true, deadline: null, fee: 10 };
+    const c = await sb.from('admin_prefs').select('costs').maybeSingle(); // nur die eigene Zeile (RLS)
+    costs = c.data ? c.data.costs : null;
   }
   async function loadAll() {
     await loadRegs().catch(() => {});
@@ -319,7 +321,7 @@ export async function startAdmin(main) {
       <div class="kasse"><div><span>Angemeldet</span><b>${regs.length}</b></div><div><span>Bezahlt</span><b>${paid}</b></div>
         <div><span>Offen</span><b>${regs.length - paid}</b></div><div><span>Kasse</span><b>${paid * fee} €</b></div></div>
       <div class="card prize"><h3>Preisgeld</h3>
-        <label class="inl-l">Kosten Essen &amp; Getränke <input type="number" id="pc" min="0" step="1" inputmode="numeric" value="${esc(store.get('vynen-costs', ''))}"> €</label>
+        <label class="inl-l">Kosten Essen &amp; Getränke <input type="number" id="pc" min="0" step="1" inputmode="numeric" value="${costs ?? ''}"> €</label><span class="muted small">Nur für deinen Account sichtbar</span>
         <div id="pz"></div></div>
       ${regs.length >= 32 ? `<p class="note warnnote" role="alert">${regs.length} Spieler: Bei 4 Boards wird es zeitlich knapp. Weniger Legs in den frühen Runden oder Schweizer System mit wenigen Runden einplanen.</p>` : ''}
       <div class="card regset"><label class="chk"><input type="checkbox" id="ro" ${regInfo.open ? 'checked' : ''}> Online-Anmeldung offen</label>
@@ -341,13 +343,18 @@ export async function startAdmin(main) {
     const pc = body.querySelector('#pc'), pz = body.querySelector('#pz');
     const prize = () => {
       const cost = Math.max(0, Number(pc.value) || 0), kasse = paid * fee, rest = kasse - cost;
-      store.set('vynen-costs', pc.value);
+      costs = pc.value === '' ? null : cost;
       if (rest < 20) { pz.innerHTML = `<p class="note warnnote">Nach Abzug der Kosten bleiben ${rest} €. Das reicht nicht für Platz 3 (20 €).</p>`; return; }
       const r = rest - 20, p2 = Math.floor(r * 0.4), p1 = r - p2;
       pz.innerHTML = `<div class="pz-calc"><span>Kasse ${kasse} € − Kosten ${cost} € = <b>${rest} €</b> Preisgeld</span></div>
         <div class="pz-p"><div class="g1"><span>1. Platz · 60 %</span><b>${p1} €</b></div><div class="g2"><span>2. Platz · 40 %</span><b>${p2} €</b></div><div class="g3"><span>3. Platz · fest</span><b>20 €</b></div></div>`;
     };
-    pc.oninput = prize; prize();
+    pc.oninput = () => {
+      prize();
+      clearTimeout(costTimer);
+      costTimer = setTimeout(() => rpc('admin_set_costs', { p_costs: costs }).catch(err => { msg = errText(err); draw(); }), 700);
+    };
+    prize();
     body.querySelector('#rs').onclick = async () => {
       try { await rpc('admin_reg_settings', { p_open: body.querySelector('#ro').checked, p_deadline: body.querySelector('#rd').value || null }); msg = 'Anmeldung gespeichert.'; await loadRegs(); }
       catch (err) { msg = errText(err); }
