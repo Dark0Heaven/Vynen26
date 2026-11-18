@@ -386,3 +386,7 @@ a.pl:hover{color:var(--red-soft)}
 .bpin .h{display:flex;justify-content:space-between;align-items:center}
 .bpin b.pv{font-family:var(--num);font-size:38px;line-height:1;letter-spacing:.14em;color:var(--gold)}
 body.theme-bigfish .bf-logo{border-radius:8px}
+.inst{margin:14px 0;padding:12px 14px;border-left:3px solid var(--gold)}
+.inst h3{margin:0 0 4px;font-size:22px;text-transform:uppercase}
+.inst-steps{margin:8px 0 0;padding-left:22px;font-size:17px;line-height:1.5}
+.inst .ico{display:inline-block;padding:0 4px;border:1px solid var(--line);border-radius:4px;font-size:14px}

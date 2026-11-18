@@ -14,6 +14,38 @@ const REG_ERR = {
   too_many: 'Gerade melden sich viele an. Bitte in einer Minute noch einmal versuchen.',
 };
 
+// ---------- App auf den Homebildschirm ----------
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; });
+window.addEventListener('appinstalled', () => { installEvt = null; });
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function installGuide() {
+  if (isStandalone()) return '';
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const iosOther = ios && /CriOS|FxiOS|EdgiOS|GSA/.test(ua);
+  const steps = ios
+    ? (iosOther ? '<li>Diese Seite in <b>Safari</b> öffnen (nur dort geht es auf dem iPhone).</li>' : '')
+      + '<li>Unten auf <b>Teilen</b> tippen <span class="ico" aria-hidden="true">⬆︎</span> (Viereck mit Pfeil).</li><li>Nach unten scrollen und <b>Zum Home-Bildschirm</b> wählen.</li><li>Oben rechts auf <b>Hinzufügen</b> tippen.</li>'
+    : '<li>Oben rechts auf <b>⋮</b> tippen.</li><li><b>App installieren</b> oder <b>Zum Startbildschirm hinzufügen</b> wählen.</li><li>Mit <b>Installieren</b> bestätigen.</li>';
+  return `<div class="card inst"><h3>Hol dir die App aufs Handy</h3>
+    <p class="muted">Dann hast du am Turniertag Spielstand, Turnierbaum und deine Statistik mit einem Tipp.</p>
+    <button class="btn pri" data-install ${installEvt ? '' : 'hidden'}>App installieren</button>
+    <ol class="inst-steps" ${installEvt ? 'hidden' : ''}>${steps}</ol></div>`;
+}
+function wireInstall(root) {
+  const b = root.querySelector('[data-install]'); if (!b) return;
+  b.onclick = async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    const r = await installEvt.userChoice.catch(() => null);
+    installEvt = null;
+    if (r && r.outcome === 'accepted') b.closest('.inst').innerHTML = '<h3>Fertig!</h3><p class="muted">Die App liegt jetzt auf deinem Startbildschirm.</p>';
+    else { b.hidden = true; root.querySelector('.inst-steps').hidden = false; }
+  };
+}
+
 // ---------- Anmeldung (#anmelden) ----------
 export function anmelden(main) {
   let alive = true;
@@ -23,8 +55,8 @@ export function anmelden(main) {
     const head = `<h2>Anmeldung</h2><p class="muted">Neujahrsdart-Turnier Vynen 26 · Sa 27.02.2027 · Vereinsheim Vynen<br>
       Startgeld ${info.fee} € bar vor Ort${info.deadline ? ` · Anmeldeschluss ${dateDe(info.deadline)}` : ''}</p>`;
     if (ok) { main.innerHTML = `<div class="adm-box">${head}<p class="note ok-note" role="status">${esc(msg)}</p>
-      <a class="btn" href="#live">Zur Live-Ansicht</a></div>`; return; }
-    if (!info.open) { main.innerHTML = `<div class="adm-box">${head}<p class="note">Die Online-Anmeldung ist geschlossen. Nachmelden geht am Turniertag vor Ort.</p></div>`; return; }
+      ${installGuide()}<a class="btn" href="#live">Zur Live-Ansicht</a></div>`; wireInstall(main); return; }
+    if (!info.open) { main.innerHTML = `<div class="adm-box">${head}<p class="note">Die Online-Anmeldung ist geschlossen. Nachmelden geht am Turniertag vor Ort.</p>${installGuide()}</div>`; wireInstall(main); return; }
     main.innerHTML = `<div class="adm-box">${head}
       <form id="rf" class="form"><label for="rn">Name</label><input id="rn" maxlength="40" autocomplete="name" required>
       <label for="rp">Handynummer</label><input id="rp" type="tel" maxlength="30" autocomplete="tel" required>
