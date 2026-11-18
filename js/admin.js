@@ -344,10 +344,14 @@ export async function startAdmin(main) {
     const prize = () => {
       const cost = Math.max(0, Number(pc.value) || 0), kasse = paid * fee, rest = kasse - cost;
       costs = pc.value === '' ? null : cost;
-      if (rest < 20) { pz.innerHTML = `<p class="note warnnote">Nach Abzug der Kosten bleiben ${rest} €. Das reicht nicht für Platz 3 (20 €).</p>`; return; }
-      const r = rest - 20, p2 = Math.floor(r * 0.4), p1 = r - p2;
+      if (rest <= 0) { pz.innerHTML = `<p class="note warnnote">Nach Abzug der Kosten bleibt kein Preisgeld (${rest} €).</p>`; return; }
+      // Platz 3 bekommt nur etwas, wenn Platz 2 dann noch mindestens 20 € hat
+      let p3 = 20, r = rest - 20, p2 = Math.floor(r * 0.4);
+      if (r < 0 || p2 < 20) { p3 = 0; r = rest; p2 = Math.floor(r * 0.4); }
+      const p1 = r - p2;
       pz.innerHTML = `<div class="pz-calc"><span>Kasse ${kasse} € − Kosten ${cost} € = <b>${rest} €</b> Preisgeld</span></div>
-        <div class="pz-p"><div class="g1"><span>1. Platz · 60 %</span><b>${p1} €</b></div><div class="g2"><span>2. Platz · 40 %</span><b>${p2} €</b></div><div class="g3"><span>3. Platz · fest</span><b>20 €</b></div></div>`;
+        <div class="pz-p"><div class="g1"><span>1. Platz · 60 %</span><b>${p1} €</b></div><div class="g2"><span>2. Platz · 40 %</span><b>${p2} €</b></div><div class="g3"><span>3. Platz · ${p3 ? 'fest' : 'entfällt'}</span><b>${p3} €</b></div></div>
+        ${p3 ? '' : '<p class="muted small">Zu wenig Preisgeld: Platz 2 käme unter 20 €, deshalb geht alles an Platz 1 und 2.</p>'}`;
     };
     pc.oninput = () => {
       prize();
