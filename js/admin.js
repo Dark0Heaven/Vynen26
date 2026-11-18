@@ -394,7 +394,7 @@ export async function startAdmin(main) {
       </div>
       <div class="grid2">
         <div><label for="tn">Turniername</label><input id="tn" required maxlength="80" value="Neujahrsdart-Turnier Vynen 26"></div>
-        <div><label for="td">Datum</label><input id="td" type="date" value="2027-02-21"></div>
+        <div><label for="td">Datum</label><input id="td" type="date" value="2027-02-27"></div>
         <div><label for="tb">Boards</label><select id="tb">${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option ${n === 4 ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
         <div><label for="ts">Setzliste</label><select id="ts"><option value="list">Reihenfolge wie eingegeben</option><option value="rand">Zufällig auslosen</option></select></div>
       </div>
