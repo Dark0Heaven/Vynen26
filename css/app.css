@@ -400,3 +400,11 @@ body.theme-bigfish .bf-logo{border-radius:8px}
 .pz-p span{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .pz-p b{font-family:var(--num);font-size:34px;line-height:1.05}
 .pz-p .g1 b{color:var(--gold)}
+
+/* Vynen-26-Design: rote Glut statt reinem Schwarz */
+body:not(.theme-bigfish){
+  background:
+    radial-gradient(ellipse 110% 70% at 50% 0%, #6a0e17 0%, rgba(106,14,23,.45) 35%, rgba(17,17,19,0) 75%) fixed,
+    radial-gradient(ellipse 100% 45% at 50% 105%, rgba(227,18,30,.28) 0%, rgba(17,17,19,0) 70%) fixed,
+    var(--bg);
+}
