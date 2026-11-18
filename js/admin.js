@@ -147,7 +147,7 @@ export async function startAdmin(main) {
       draw();
     };
     const body = main.querySelector('#body');
-    if (tab === 'new') newForm(body); else if (tab === 'reg') regTab(body); else if (tab === 'fix') fixes(body); else boards(body);
+    if (tab === 'new') newForm(body); else if (tab === 'reg') regTab(body); else if (tab === 'fix') { fixes(body); dangerZone(body); } else boards(body);
   }
 
   function boards(body) {
@@ -256,6 +256,29 @@ export async function startAdmin(main) {
   }
 
   // ---------- Korrekturen ----------
+  // Ganzes Turnier löschen (auch wenn es nicht als Testturnier angelegt wurde)
+  function dangerZone(body) {
+    if (!data || data.t.is_test) return; // Testturniere haben schon den Knopf oben
+    const box = document.createElement('div');
+    box.className = 'card danger';
+    box.innerHTML = `<h3>Turnier löschen</h3>
+      <p class="muted small">Löscht „${esc(data.t.name)}“ mit allen Spielen, Ergebnissen und Statistiken. Das lässt sich nicht rückgängig machen. Die Anmeldeliste bleibt erhalten.</p>
+      <label for="dz">Zum Bestätigen <b>LÖSCHEN</b> eintippen</label>
+      <div class="bbtns"><input id="dz" autocomplete="off" placeholder="LÖSCHEN"><button class="btn warn" id="dzb" disabled>Turnier endgültig löschen</button></div>`;
+    body.appendChild(box);
+    const inp = box.querySelector('#dz'), btn = box.querySelector('#dzb');
+    inp.oninput = () => { btn.disabled = inp.value.trim().toUpperCase() !== 'LÖSCHEN'; };
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        await rpc('admin_set_test', { p_tournament: data.t.id, p_test: true });
+        await rpc('admin_delete_test', { p_tournament: data.t.id });
+        msg = 'Turnier gelöscht.'; tab = 'boards'; await loadAll();
+      } catch (err) { msg = errText(err); }
+      draw();
+    };
+  }
+
   function fixes(body) {
     const { t, players, matches } = data;
     const nm = id => esc((players.find(p => p.id === id) || {}).name || 'offen');

@@ -408,3 +408,6 @@ body:not(.theme-bigfish){
     radial-gradient(ellipse 100% 45% at 50% 105%, rgba(227,18,30,.28) 0%, rgba(17,17,19,0) 70%) fixed,
     var(--bg);
 }
+.danger{margin-top:28px;padding:12px 14px;border:1px solid var(--red)}
+.danger h3{margin:0 0 4px;color:var(--red-soft);text-transform:uppercase}
+.danger input{flex:1;min-width:160px}
