@@ -519,3 +519,8 @@ body:not(.theme-bigfish){
 .cam-cal-bar .gold{color:var(--gold)}
 body.play:has(.cam-panel:not([hidden]):not(.full)) .play-g{padding-top:110px}
 .play-act .btn.on{border-color:var(--win);color:var(--win)}
+.cam-stage{overflow:hidden;touch-action:none}
+.cam-zoom{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
+.cam-zbtn{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:8px;z-index:2}
+.cam-zbtn .btn{width:48px;height:48px;font-size:24px;padding:0;background:rgba(20,20,24,.85)}
+.cam-hz input{width:min(260px,50vw)}

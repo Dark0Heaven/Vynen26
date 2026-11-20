@@ -132,6 +132,8 @@ export function createCamera(opts) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     } catch (e) { msg = 'Kein Kamerazugriff. Bitte in den Browser-Einstellungen erlauben.'; mode = 'error'; render(); return; }
+    const hz = store.get('vynen-cam-zoom', null);
+    if (hz) stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: hz }] }).catch(() => {});
     video = document.createElement('video'); video.playsInline = true; video.muted = true; video.srcObject = stream;
     await video.play().catch(() => {});
     await new Promise(r => video.videoWidth ? r() : video.addEventListener('loadedmetadata', r, { once: true }));
@@ -225,31 +227,77 @@ export function createCamera(opts) {
     }
     if (tip) { c.fillStyle = '#ff2d55'; c.beginPath(); c.arc(tip[0] * w, tip[1] * h, 6, 0, 7); c.fill(); }
   }
+  // Einmessen mit Zoom: Pinch/Ziehen oder +/−, Tippen setzt den Punkt (Transform wird über getBoundingClientRect berücksichtigt)
+  let view = { z: 1, tx: 0, ty: 0 };
   function renderCalib() {
     panel.className = 'cam-panel full';
     const next = CAL[calPts.length];
-    panel.innerHTML = `<div class="cam-cal"><div class="cam-stage"></div>
+    const caps = stream && stream.getVideoTracks()[0].getCapabilities ? stream.getVideoTracks()[0].getCapabilities() : {};
+    const hz = caps.zoom && caps.zoom.max > caps.zoom.min ? caps.zoom : null;
+    const curZ = hz ? (stream.getVideoTracks()[0].getSettings().zoom || hz.min) : 1;
+    panel.innerHTML = `<div class="cam-cal"><div class="cam-stage"><div class="cam-zoom"></div>
+        <div class="cam-zbtn"><button class="btn sm" data-z="in" aria-label="Vergrößern">＋</button><button class="btn sm" data-z="out" aria-label="Verkleinern">−</button><button class="btn sm" data-z="reset" aria-label="Ganzes Bild">⤢</button></div></div>
       <div class="cam-cal-bar">${next ? `<b>Tippe auf den äußeren Rand des Double-Rings, mittig auf der <span class="gold">${next.n}</span></b>
-        <span class="muted small">Punkt ${calPts.length + 1} von 4 · Handy fest hinstellen, gern schräg von unten oder seitlich</span>`
+        <span class="muted small">Punkt ${calPts.length + 1} von 4 · Mit zwei Fingern oder ＋ vergrößern, mit einem Finger verschieben</span>`
         : `<b>Passen die grünen Ringe aufs Board?</b>`}
-        <div class="bbtns">${next ? '' : '<button class="btn pri" data-c="calok">Passt</button>'}<button class="btn" data-c="recal">Neu</button><button class="btn ghost" data-c="close">Abbrechen</button></div></div></div>`;
-    const stage = panel.querySelector('.cam-stage');
-    video.className = 'cam-video'; stage.appendChild(video); video.play().catch(() => {});
-    const oc = document.createElement('canvas'); oc.className = 'cam-ov'; stage.appendChild(oc);
+        ${hz ? `<label class="inl-l cam-hz">Kamera-Zoom <input type="range" min="${hz.min}" max="${hz.max}" step="${hz.step || 0.1}" value="${curZ}" data-hz></label>` : ''}
+        <div class="bbtns">${next ? '' : '<button class="btn pri" data-c="calok">Passt</button>'}${calPts.length && next ? '<button class="btn" data-c="calback">Letzten Punkt zurück</button>' : ''}<button class="btn" data-c="recal">Neu</button><button class="btn ghost" data-c="close">Abbrechen</button></div></div></div>`;
+    const stage = panel.querySelector('.cam-stage'), zl = panel.querySelector('.cam-zoom');
+    video.className = 'cam-video'; zl.appendChild(video); video.play().catch(() => {});
+    const oc = document.createElement('canvas'); oc.className = 'cam-ov'; zl.appendChild(oc);
+    const applyView = () => {
+      const W = stage.clientWidth, Hh = stage.clientHeight;
+      view.z = Math.min(8, Math.max(1, view.z));
+      view.tx = Math.min(0, Math.max(W - W * view.z, view.tx)); view.ty = Math.min(0, Math.max(Hh - Hh * view.z, view.ty));
+      zl.style.transform = `translate(${view.tx}px,${view.ty}px) scale(${view.z})`;
+    };
+    const zoomAt = (f, cx, cy) => { const z0 = view.z, z1 = Math.min(8, Math.max(1, z0 * f)); view.tx = cx - (cx - view.tx) * z1 / z0; view.ty = cy - (cy - view.ty) * z1 / z0; view.z = z1; applyView(); };
+    const hzIn = panel.querySelector('[data-hz]');
+    if (hzIn) hzIn.oninput = () => {
+      stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: Number(hzIn.value) }] }).catch(() => {});
+      store.set('vynen-cam-zoom', Number(hzIn.value));
+      if (calPts.length) { calPts = []; renderCalib(); } // anderer Bildausschnitt: Punkte neu setzen
+    };
+    panel.querySelectorAll('[data-z]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const W = stage.clientWidth / 2, Hh = stage.clientHeight / 2;
+      if (b.dataset.z === 'in') zoomAt(1.6, W, Hh); else if (b.dataset.z === 'out') zoomAt(1 / 1.6, W, Hh); else { view = { z: 1, tx: 0, ty: 0 }; applyView(); }
+    });
+    // Gesten: ein Finger verschiebt (ab 6 px), zwei Finger zoomen, kurzes Tippen setzt einen Punkt
+    const ptrs = new Map(); let moved = false, pinch = null;
+    stage.onpointerdown = e => { if (e.target.closest('button')) return; stage.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY }); moved = ptrs.size > 1;
+      if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; } };
+    stage.onpointermove = e => {
+      const p = ptrs.get(e.pointerId); if (!p) return;
+      const rc = stage.getBoundingClientRect();
+      if (ptrs.size === 2 && pinch) {
+        p.x = e.clientX; p.y = e.clientY; const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+        zoomAt(d / pinch.d, (a.x + b.x) / 2 - rc.left, (a.y + b.y) / 2 - rc.top); pinch.d = d; return;
+      }
+      if (!moved && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 6) return;
+      moved = true; view.tx += e.clientX - p.x; view.ty += e.clientY - p.y; p.x = e.clientX; p.y = e.clientY; applyView();
+    };
+    stage.onpointerup = stage.onpointercancel = e => {
+      const p = ptrs.get(e.pointerId); ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null;
+      if (!p || moved || e.type === 'pointercancel' || calPts.length >= 4) { if (!ptrs.size) moved = false; return; }
+      const r = oc.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+      calPts.push({ x, y });
+      if (calPts.length === 4) setCal(calPts);
+      renderCalib();
+    };
+    stage.onwheel = e => { e.preventDefault(); const rc = stage.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX - rc.left, e.clientY - rc.top); };
     requestAnimationFrame(() => {
       const box = videoBox(stage);
       Object.assign(oc.style, { left: box.x + 'px', top: box.y + 'px', width: box.w + 'px', height: box.h + 'px' });
-      const w = oc.width = box.w * 2, h = oc.height = box.h * 2, c = oc.getContext('2d');
-      c.fillStyle = '#ffcc00';
-      calPts.forEach(p => { c.beginPath(); c.arc(p.x * w, p.y * h, 10, 0, 7); c.fill(); });
+      applyView();
+      const w = oc.width = box.w * 3, h = oc.height = box.h * 3, c = oc.getContext('2d');
+      const rad = Math.max(3, 12 / view.z);
+      c.strokeStyle = '#ffcc00'; c.lineWidth = Math.max(1.5, 3 / view.z);
+      calPts.forEach(p => { // Fadenkreuz statt Punkt, damit die Stelle sichtbar bleibt
+        c.beginPath(); c.arc(p.x * w, p.y * h, rad, 0, 7); c.moveTo(p.x * w - rad * 2, p.y * h); c.lineTo(p.x * w + rad * 2, p.y * h);
+        c.moveTo(p.x * w, p.y * h - rad * 2); c.lineTo(p.x * w, p.y * h + rad * 2); c.stroke(); });
       if (calPts.length === 4) drawOverlay(oc);
-      oc.onclick = e => {
-        if (calPts.length >= 4) return;
-        const rc = oc.getBoundingClientRect();
-        calPts.push({ x: (e.clientX - rc.left) / rc.width, y: (e.clientY - rc.top) / rc.height });
-        if (calPts.length === 4) setCal(calPts);
-        renderCalib();
-      };
     });
   }
   // Wo liegt das Videobild innerhalb des Containers (object-fit: contain)
@@ -266,7 +314,8 @@ export function createCamera(opts) {
     if (c === 'ok') accept();
     if (c === 'no') reject();
     if (c === 'free') { resetRef(true); mode = 'watch'; msg = ''; render(); }
-    if (c === 'calib' || c === 'recal') { calPts = []; mode = 'calib'; render(); }
+    if (c === 'calib' || c === 'recal') { calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
+    if (c === 'calback') { calPts.pop(); render(); }
     if (c === 'calok') { mode = 'watch'; resetRef(true); msg = ''; render(); }
     if (c === 'auto') { auto = !auto; store.set('vynen-cam-auto', auto); render(); }
   });
