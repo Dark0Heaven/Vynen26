@@ -1,5 +1,6 @@
 // Freies Spiel: Cricket und Tactics für beliebig viele Spieler, nur auf diesem Gerät (kein Login, keine Datenbank)
 import { esc, store } from './db.js';
+import { createCamera } from './camera.js';
 
 const GAMES = {
   cricket: { name: 'Cricket', targets: [20, 19, 18, 17, 16, 15, 25] },
@@ -61,7 +62,7 @@ const markSym = n => n >= 3 ? '<span class="mk m3" aria-label="zu">ⓧ</span>' :
 
 // ---------- Ansicht ----------
 export function spielen(main) {
-  let game = store.get(KEY, null), mult = 1, sure = '';
+  let game = store.get(KEY, null), mult = 1, sure = '', cam = null;
   document.body.classList.add('play');
 
   const save = () => store.set(KEY, game);
@@ -126,8 +127,10 @@ export function spielen(main) {
           <button data-t="0" class="miss">Fehlwurf</button></div>
         <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
           <button class="btn" data-k="next" ${st.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
+          ${navigator.mediaDevices ? `<button class="btn ${cam && cam.active ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
           <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div>
       </div></div>`;
+    if (cam && cam.active) cam.sync();
   }
 
   function finish(st) {
@@ -155,17 +158,22 @@ export function spielen(main) {
       return play();
     }
     switch (b.dataset.k) {
+      case 'cam':
+        if (cam && cam.active) { cam.stop(); return play(); }
+        cam = createCamera({ targets: GAMES[game.type].targets, visitInfo: () => ({ inVisit: replay(game).inVisit }),
+          onDart: (t, m) => { if (!game) return; game.darts.push({ t, m: t ? m : 0 }); mult = 1; save(); play(); }, onClose: () => play() });
+        cam.start(); return play();
       case 'undo': game.darts.pop(); save(); return play();
       case 'next': { const st = replay(game); for (let k = st.inVisit; k < 3; k++) game.darts.push({ t: 0, m: 0 }); save(); return play(); }
-      case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; game = null; store.del(KEY); return setup();
+      case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; game = null; store.del(KEY); if (cam) cam.stop(); return setup();
       case 'rematch': {
         // Revanche: gleiche Spieler, der bisherige Startspieler rückt ans Ende
         const pl = [...game.players.slice(1), game.players[0]];
         game = { ...game, players: pl, darts: [], started: Date.now() }; save(); mult = 1; return play();
       }
-      case 'new': game = null; store.del(KEY); return setup();
+      case 'new': game = null; store.del(KEY); if (cam) cam.stop(); return setup();
     }
   };
   if (game) play(); else setup();
-  return () => { main.onclick = null; document.body.classList.remove('play'); };
+  return () => { if (cam) cam.stop(); main.onclick = null; document.body.classList.remove('play'); };
 }
