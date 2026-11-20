@@ -1,0 +1,171 @@
+// Freies Spiel: Cricket und Tactics für beliebig viele Spieler, nur auf diesem Gerät (kein Login, keine Datenbank)
+import { esc, store } from './db.js';
+
+const GAMES = {
+  cricket: { name: 'Cricket', targets: [20, 19, 18, 17, 16, 15, 25] },
+  tactics: { name: 'Tactics', targets: [20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 25] },
+};
+const VARIANTS = { std: 'Standard (Punkte)', cut: 'Cut-Throat', none: 'Ohne Punkte' };
+const KEY = 'vynen-play', KEY_SETUP = 'vynen-play-setup';
+const lbl = t => t === 25 ? 'Bull' : String(t);
+
+// ---------- Spiellogik: Stand komplett aus der Wurfliste berechnen (macht Rückgängig trivial) ----------
+export function replay(game) {
+  const T = GAMES[game.type].targets;
+  const P = game.players.map(name => ({ name, marks: Object.fromEntries(T.map(t => [t, 0])), pts: 0, darts: 0, hits: 0 }));
+  let cur = 0, inVisit = 0, winner = null;
+  const visit = [];
+  for (const d of game.darts) {
+    if (winner !== null) break;
+    const p = P[cur];
+    p.darts++;
+    if (d.t) {
+      const m = d.t === 25 ? Math.min(d.m, 2) : d.m;
+      p.hits += m;
+      const close = Math.min(m, 3 - p.marks[d.t]), extra = m - close;
+      p.marks[d.t] += close;
+      if (extra > 0 && game.variant !== 'none') {
+        const others = P.filter((_, i) => i !== cur);
+        if (game.variant === 'std') { if (others.some(o => o.marks[d.t] < 3)) p.pts += extra * d.t; }
+        else for (const o of others) if (o.marks[d.t] < 3) o.pts += extra * d.t;
+      }
+    }
+    if (isWinner(game, P, cur)) { winner = cur; break; }
+    inVisit++;
+    if (inVisit === 3) { inVisit = 0; cur = (cur + 1) % P.length; }
+  }
+  // Würfe der laufenden Aufnahme für die Anzeige
+  if (winner === null) for (let i = game.darts.length - inVisit; i < game.darts.length; i++) visit.push(game.darts[i]);
+  const dead = new Set(T.filter(t => P.every(p => p.marks[t] >= 3)));
+  return { T, P, cur, inVisit, winner, visit, dead };
+}
+
+function isWinner(game, P, i) {
+  const p = P[i], T = GAMES[game.type].targets;
+  if (!T.every(t => p.marks[t] >= 3)) return false;
+  const others = P.filter((_, k) => k !== i);
+  if (game.variant === 'std') return others.every(o => p.pts >= o.pts);
+  if (game.variant === 'cut') return others.every(o => p.pts <= o.pts);
+  return true;
+}
+
+function ranking(game, st) {
+  const closed = p => st.T.filter(t => p.marks[t] >= 3).length;
+  return st.P.map((p, i) => ({ ...p, i })).sort((a, b) => (b.i === st.winner) - (a.i === st.winner) || closed(b) - closed(a)
+    || (game.variant === 'cut' ? a.pts - b.pts : b.pts - a.pts));
+}
+
+const dartTxt = d => !d.t ? '–' : d.t === 25 ? (d.m >= 2 ? 'Bull' : '25') : ['', 'S', 'D', 'T'][d.m] + d.t;
+const markSym = n => n >= 3 ? '<span class="mk m3" aria-label="zu">ⓧ</span>' : n === 2 ? '<span class="mk m2" aria-label="2 Treffer">✕</span>'
+  : n === 1 ? '<span class="mk m1" aria-label="1 Treffer">╱</span>' : '<span class="mk m0"></span>';
+
+// ---------- Ansicht ----------
+export function spielen(main) {
+  let game = store.get(KEY, null), mult = 1, sure = '';
+  document.body.classList.add('play');
+
+  const save = () => store.set(KEY, game);
+
+  function setup() {
+    const s = store.get(KEY_SETUP, { type: 'cricket', variant: 'std', players: [] });
+    let players = [...s.players];
+    const draw = () => {
+      main.innerHTML = `<div class="wrap play-setup"><h1 class="tt">Spielen</h1>
+        <p class="muted">Cricket oder Tactics an einem Board. Läuft nur auf diesem Gerät, ohne Anmeldung.</p>
+        <div class="flabel">Spiel</div>
+        <div class="seg" role="radiogroup" aria-label="Spiel">${Object.entries(GAMES).map(([k, g]) =>
+          `<button type="button" data-type="${k}" class="${s.type === k ? 'on' : ''}" role="radio" aria-checked="${s.type === k}">${g.name}<small>${k === 'cricket' ? '15–20 · Bull' : '10–20 · Bull'}</small></button>`).join('')}</div>
+        <div class="flabel">Variante</div>
+        <div class="seg" role="radiogroup" aria-label="Variante">${Object.entries(VARIANTS).map(([k, v]) =>
+          `<button type="button" data-var="${k}" class="${s.variant === k ? 'on' : ''}" role="radio" aria-checked="${s.variant === k}">${v}</button>`).join('')}</div>
+        <p class="muted small">${s.variant === 'std' ? 'Treffer auf eigene offene Zahlen geben Punkte, solange ein Gegner sie noch nicht zu hat. Sieger: alles zu und mindestens gleich viele Punkte.'
+          : s.variant === 'cut' ? 'Treffer auf eigene offene Zahlen schreiben jedem Gegner Punkte auf, der sie noch nicht zu hat. Sieger: alles zu und die wenigsten Punkte.'
+          : 'Es zählt nur das Schließen. Wer zuerst alle Zahlen zu hat, gewinnt.'}</p>
+        <div class="flabel">Spieler (${players.length})</div>
+        <form id="pa" class="bbtns addrow"><input id="pn" maxlength="24" placeholder="Name" aria-label="Spielername" autocomplete="off">
+          <button class="btn pri" type="submit">Hinzufügen</button></form>
+        <ol class="list play-pl">${players.map((n, i) => `<li><span><span class="muted">${i + 1}.</span> ${esc(n)}</span>
+          <span class="bbtns"><button class="btn sm" data-up="${i}" aria-label="${esc(n)} nach oben" ${i ? '' : 'disabled'}>↑</button>
+          <button class="btn sm" data-rm="${i}" aria-label="${esc(n)} entfernen">✕</button></span></li>`).join('') || '<li class="muted">Noch keine Spieler. Mindestens zwei eintragen.</li>'}</ol>
+        <div class="bbtns"><button class="btn" data-k="shuffle" ${players.length > 1 ? '' : 'disabled'}>Reihenfolge auslosen</button>
+          <button class="btn pri big" data-k="start" ${players.length > 1 ? '' : 'disabled'}>Spiel starten</button></div></div>`;
+      const f = main.querySelector('#pa');
+      f.onsubmit = e => { e.preventDefault(); const n = f.pn.value.trim(); if (n) { players.push(n); persist(); draw(); main.querySelector('#pn').focus(); } };
+    };
+    const persist = () => { s.players = players; store.set(KEY_SETUP, s); };
+    main.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.type) { s.type = b.dataset.type; persist(); draw(); }
+      else if (b.dataset.var) { s.variant = b.dataset.var; persist(); draw(); }
+      else if (b.dataset.rm !== undefined) { players.splice(Number(b.dataset.rm), 1); persist(); draw(); }
+      else if (b.dataset.up !== undefined) { const i = Number(b.dataset.up); [players[i - 1], players[i]] = [players[i], players[i - 1]]; persist(); draw(); }
+      else if (b.dataset.k === 'shuffle') { for (let i = players.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [players[i], players[j]] = [players[j], players[i]]; } persist(); draw(); }
+      else if (b.dataset.k === 'start') { game = { type: s.type, variant: s.variant, players: [...players], darts: [], started: Date.now() }; save(); mult = 1; play(); }
+    };
+    draw();
+  }
+
+  function play() {
+    main.onclick = onPlay;
+    const st = replay(game), g = GAMES[game.type];
+    if (st.winner !== null) return finish(st);
+    const p = st.P[st.cur];
+    const rows = st.P.map((x, i) => `<tr class="${i === st.cur ? 'on' : ''}"><th scope="row"><span class="pn">${esc(x.name)}</span></th>
+      ${game.variant === 'none' ? '' : `<td class="pts">${x.pts}</td>`}${st.T.map(t => `<td class="${st.dead.has(t) ? 'dead' : ''}">${markSym(x.marks[t])}</td>`).join('')}</tr>`).join('');
+    main.innerHTML = `<div class="wrap play-g">
+      <div class="play-top"><div><span class="muted small">${g.name} · ${VARIANTS[game.variant]}</span>
+        <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
+        <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => `<span class="${st.visit[k] ? 'f' : ''}">${st.visit[k] ? dartTxt(st.visit[k]) : ''}</span>`).join('')}</div></div>
+      <div class="tbl-scroll play-board"><table class="tbl ck"><thead><tr><th>Spieler</th>${game.variant === 'none' ? '' : '<th>Pkt</th>'}
+        ${st.T.map(t => `<th class="${st.dead.has(t) ? 'dead' : ''}">${lbl(t)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="play-pad">
+        <div class="seg mult" role="radiogroup" aria-label="Multiplikator">${[1, 2, 3].map(m => `<button data-m="${m}" class="${mult === m ? 'on' : ''}" role="radio" aria-checked="${mult === m}">${['', 'Single', 'Double', 'Triple'][m]}</button>`).join('')}</div>
+        <div class="tg ${st.T.length > 7 ? 'many' : ''}">${st.T.map(t => {
+          const mine = p.marks[t] >= 3, off = (t === 25 && mult === 3);
+          return `<button data-t="${t}" class="${st.dead.has(t) ? 'dead' : mine ? 'mine' : ''}" ${off ? 'disabled' : ''}>${lbl(t)}</button>`; }).join('')}
+          <button data-t="0" class="miss">Fehlwurf</button></div>
+        <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
+          <button class="btn" data-k="next" ${st.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
+          <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div>
+      </div></div>`;
+  }
+
+  function finish(st) {
+    main.onclick = onPlay;
+    const r = ranking(game, st), g = GAMES[game.type];
+    const closed = p => st.T.filter(t => p.marks[t] >= 3).length;
+    main.innerHTML = `<div class="wrap play-end"><span class="muted small">${g.name} · ${VARIANTS[game.variant]}</span>
+      <h1 class="tt">🏆 ${esc(st.P[st.winner].name)} gewinnt</h1>
+      <ol class="list play-rank">${r.map((p, k) => `<li class="${k === 0 ? 'w' : ''}"><span><b>${k + 1}.</b> ${esc(p.name)}</span>
+        <span class="muted">${closed(p)}/${st.T.length} zu${game.variant === 'none' ? '' : ` · ${p.pts} Pkt`} · ${p.darts} Darts · ${p.darts ? (p.hits / p.darts * 3).toFixed(2).replace('.', ',') : '0'} MPR</span></li>`).join('')}</ol>
+      <p class="muted small">MPR = Treffer (Marks) pro Aufnahme.</p>
+      <div class="bbtns"><button class="btn" data-k="undo">↶ Letzten Dart zurück</button>
+        <button class="btn pri big" data-k="rematch">Revanche</button><button class="btn" data-k="new">Neues Spiel</button></div></div>`;
+  }
+
+  const onPlay = e => {
+    if (!game) return;
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    if (b.dataset.k !== 'quit') sure = '';
+    if (b.dataset.m) { mult = Number(b.dataset.m); return play(); }
+    if (b.dataset.t !== undefined) {
+      const t = Number(b.dataset.t);
+      game.darts.push({ t, m: t ? mult : 0 }); mult = 1; save();
+      if (navigator.vibrate) try { navigator.vibrate(15); } catch {}
+      return play();
+    }
+    switch (b.dataset.k) {
+      case 'undo': game.darts.pop(); save(); return play();
+      case 'next': { const st = replay(game); for (let k = st.inVisit; k < 3; k++) game.darts.push({ t: 0, m: 0 }); save(); return play(); }
+      case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; game = null; store.del(KEY); return setup();
+      case 'rematch': {
+        // Revanche: gleiche Spieler, der bisherige Startspieler rückt ans Ende
+        const pl = [...game.players.slice(1), game.players[0]];
+        game = { ...game, players: pl, darts: [], started: Date.now() }; save(); mult = 1; return play();
+      }
+      case 'new': game = null; store.del(KEY); return setup();
+    }
+  };
+  if (game) play(); else setup();
+  return () => { main.onclick = null; document.body.classList.remove('play'); };
+}

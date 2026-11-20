@@ -452,3 +452,48 @@ body:not(.theme-bigfish){
 .lg-adm .btn{margin-top:8px}
 @media (max-width:520px){.lg-t{font-size:18px}.lg-n b{font-size:46px}.lg-games li{grid-template-columns:22px 1fr 44px 1fr}.lg-games .tag{display:none}}
 .lg-adm{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+
+/* Spielen: Cricket / Tactics */
+.play-setup .seg{margin-bottom:6px}
+.play-setup .seg button small{display:block;font-size:12px;font-weight:600;letter-spacing:.06em;opacity:.7}
+.play-setup .flabel{margin-top:14px}
+.play-pl li{align-items:center}
+.btn.big{min-height:52px;padding:0 28px;font-size:18px}
+.play-g{padding-bottom:20px}
+.play-top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:10px 0}
+.play-turn{margin:2px 0 0;font-size:30px;font-style:italic;text-transform:uppercase}
+.play-turn .muted{font-size:18px;font-style:normal;text-transform:none}
+.play-visit{display:flex;gap:6px}
+.play-visit span{width:64px;height:44px;border:1px solid var(--line);border-radius:8px;display:grid;place-items:center;font-family:var(--num);font-size:24px;color:var(--muted)}
+.play-visit span.f{color:var(--fg);background:var(--panel2)}
+.tbl.ck th,.tbl.ck td{text-align:center;padding:6px 8px}
+.tbl.ck th:first-child{text-align:left}
+.tbl.ck tr.on{background:color-mix(in srgb,var(--red) 18%,transparent)}
+.tbl.ck tr.on th .pn{color:var(--fg);font-weight:800}
+.tbl.ck td.pts{font-family:var(--num);font-size:24px;color:var(--gold)}
+.tbl.ck .dead{opacity:.3}
+.mk{display:inline-block;min-width:22px;font-size:22px;line-height:1}
+.mk.m1{color:var(--muted)} .mk.m2{color:var(--fg)} .mk.m3{color:var(--win)}
+.play-pad{margin-top:12px;position:sticky;bottom:0;background:var(--bg);padding:10px 0 4px;border-top:1px solid var(--line)}
+.play-pad .mult{width:100%;margin-bottom:8px}
+.play-pad .mult button{flex:1}
+.play-pad .tg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.play-pad .tg.many{grid-template-columns:repeat(5,1fr)}
+.play-pad .tg button{min-height:58px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-family:var(--num);font-size:30px;cursor:pointer}
+.play-pad .tg button:active{transform:scale(.97)}
+.play-pad .tg button.mine{border-color:var(--win)}
+.play-pad .tg button.dead{opacity:.35}
+.play-pad .tg button:disabled{opacity:.2;cursor:not-allowed}
+.play-pad .tg button.miss{font-family:inherit;font-size:16px;font-weight:800;text-transform:uppercase;color:var(--muted);grid-column:span 2}
+.play-pad .tg.many button.miss{grid-column:span 3}
+.play-act{margin-top:10px}
+.play-rank li.w{border-left:3px solid var(--gold)}
+.play-rank li.w b{color:var(--gold)}
+@media (max-width:520px){.play-visit span{width:52px}.play-pad .tg button{min-height:52px;font-size:26px}}
+.tbl.ck{min-width:0}
+.tbl.ck th,.tbl.ck td{padding:6px 4px;text-align:center!important}
+.tbl.ck tbody th{text-align:left!important;background:transparent;font-size:16px;letter-spacing:0;text-transform:none;color:var(--fg);max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.tbl.ck thead th{font-size:13px;letter-spacing:0}
+.tbl.ck td.pts{font-size:22px;color:var(--gold)!important;font-family:var(--num)}
+.mk{font-size:19px}
+.play-pad{position:static}

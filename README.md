@@ -17,6 +17,8 @@ Turnier-App für das Neujahrsdart-Turnier „Vynen 26“: Live-Spielstand für a
 
 - **Liga** (Mannschaftsduell): 2 Teams, 6 Einzel · 3 Doppel · 6 Einzel, alle 15 Spiele, jedes Spiel 1 Punkt. Spieler pro Spiel in der Leitung eintragen; Live, Spielbericht und Halle zeigen den Mannschaftsstand. Statistik nur aus Einzeln.
 
+- **Spielen** (`#spielen`): Cricket (15–20, Bull) und Tactics (10–20, Bull) für beliebig viele Spieler, Varianten Standard / Cut-Throat / ohne Punkte. Läuft nur auf dem Gerät, ohne Login; Stand bleibt nach Neustart erhalten.
+
 ## Technik
 - Statische Seite (HTML/CSS/JS, keine Build-Schritte), gehostet über GitHub Pages.
 - Daten und Live-Updates: Supabase (`supabase/migrations/`). Schreibzugriffe nur über PIN-geprüfte Datenbankfunktionen (`ref_*`) bzw. Admin-Login (`admin_*`); die Spiellogik (Bust, Double Out, Leg-/Matchende, Weiterrücken im Baum) läuft auf dem Server.

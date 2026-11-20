@@ -5,6 +5,7 @@ import { startAdmin } from './admin.js';
 import { live, baum, tabelle, halle } from './views.js';
 import { watchTheme } from './theme.js';
 import { anmelden, spieler, druck } from './extra.js';
+import { spielen } from './cricket.js';
 
 const main = document.getElementById('main');
 const nav = document.getElementById('nav');
@@ -24,6 +25,7 @@ function route() {
   if (h === 'admin') return admin();
   main.onclick = null;
   if (h === 'anmelden') { cleanup = anmelden(main); return; }
+  if (h === 'spielen') { cleanup = spielen(main); return; }
   if (h === 'druck') { cleanup = druck(main); return; }
   if (h.startsWith('spieler/')) { cleanup = spieler(main, h.slice(8)); return; }
   const view = { baum, tabelle, halle }[h] || live;
