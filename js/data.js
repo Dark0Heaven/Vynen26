@@ -53,6 +53,21 @@ function enrich(d) {
       for (const p of d.stats) { const r = rank.get(p.id); if (r <= 4) p.place = r; }
     d.stats.sort((a, b) => (a.place || 99) - (b.place || 99) || rank.get(a.id) - rank.get(b.id));
   }
+  if (t.mode === 'league') {
+    // Mannschaftsduell: jedes gewonnene Spiel = 1 Punkt fürs Team; Spielerstatistik nur aus Einzeln
+    const pl = new Map(players.map(p => [p.id, p]));
+    const games = matches.filter(m => m.kind === 'lg').sort((a, b) => a.idx - b.idx);
+    const sc = [0, 0]; let played = 0;
+    for (const m of games) if (['done', 'wo'].includes(m.status) && m.winner) {
+      const tm = (pl.get(m.winner) || {}).team; if (tm) sc[tm - 1]++; played++;
+    }
+    const need = Math.floor(games.length / 2) + 1;
+    d.league = { teams: (t.league && t.league.teams) || ['Team A', 'Team B'], blocks: (t.league && t.league.blocks) || [],
+      sc, played, total: games.length, games, need, winner: sc[0] >= need ? 0 : sc[1] >= need ? 1 : null };
+    d.stats = d.stats.filter(p => !(pl.get(p.id) || {}).pair);
+    for (const p of d.stats) p.team = (pl.get(p.id) || {}).team;
+    d.stats.sort((a, b) => b.s - a.s || b.avg - a.avg);
+  }
   return d;
 }
 

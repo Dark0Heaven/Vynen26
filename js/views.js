@@ -47,12 +47,40 @@ function champ(d) {
   return `<div class="podium">${top.map(p => `<div class="pod p${p.place}"><span>${p.place}.</span><b>${esc(p.name)}</b></div>`).join('')}</div>`;
 }
 
+// ---------- Liga (Mannschaftsduell) ----------
+export function leagueScore(d, big) {
+  const L = d.league;
+  const sub = L.winner !== null
+    ? `<b>${esc(L.teams[L.winner])}</b> hat gewonnen${L.played < L.total ? ` · noch ${L.total - L.played} Spiele` : ''}`
+    : L.played === L.total ? 'Spieltag beendet' : `${L.played} von ${L.total} Spielen · ${L.need} Punkte zum Sieg`;
+  return `<div class="lg-score ${big ? 'big' : ''}"><div class="lg-t ${L.winner === 0 ? 'win' : ''}">${esc(L.teams[0])}</div>
+    <div class="lg-n"><b>${L.sc[0]}</b><span>:</span><b>${L.sc[1]}</b></div><div class="lg-t r ${L.winner === 1 ? 'win' : ''}">${esc(L.teams[1])}</div>
+    <p class="lg-sub">${sub}</p></div>`;
+}
+
+export function leagueReport(d, compact) {
+  const L = d.league;
+  return L.blocks.map((b, bi) => {
+    const ms = L.games.filter(m => m.round === bi);
+    return `<section class="lg-block"><h3>${b.t === 'd' ? 'Doppel' : 'Einzel'}<span>${ms.filter(m => ['done', 'wo'].includes(m.status)).length}/${ms.length}</span></h3>
+      <ol class="lg-games">${ms.map(m => {
+        const fin = ['done', 'wo'].includes(m.status), wA = fin && m.winner && m.winner === m.player_a, wB = fin && m.winner && m.winner === m.player_b;
+        const res = m.status === 'done' ? `${m.legs_a}:${m.legs_b}` : m.status === 'wo' ? 'w.o.'
+          : m.st ? `<span class="live-r">${m.st.legs[0]}:${m.st.legs[1]}</span>` : '–';
+        const nm = id => id ? esc(d.pname(id)) : '<span class="muted">offen</span>';
+        return `<li class="${m.status}"><span class="no">${m.idx + 1}</span><span class="a ${wA ? 'w' : ''}">${nm(m.player_a)}</span>
+          <span class="res">${res}</span><span class="b ${wB ? 'w' : ''}">${nm(m.player_b)}</span>
+          ${!compact && ['live', 'review'].includes(m.status) ? `<span class="tag live">Board ${m.board}</span>` : ''}</li>`;
+      }).join('')}</ol></section>`;
+  }).join('');
+}
+
 // ---------- Live ----------
 export function live(main) {
   return mount(main, d => {
     const boards = []; for (let b = 1; b <= d.t.boards; b++) boards.push(boardTile(d, b, false));
     const r = recent(d, 6);
-    return `<div class="wrap"><div class="adm-head"><h1 class="tt">${esc(d.t.name)}${d.t.is_test ? ' <span class="tag gold">Test</span>' : ''}</h1><a class="btn sm" href="#halle">Hallen-Anzeige</a></div>${champ(d)}
+    return `<div class="wrap"><div class="adm-head"><h1 class="tt">${esc(d.t.name)}${d.t.is_test ? ' <span class="tag gold">Test</span>' : ''}</h1><a class="btn sm" href="#halle">Hallen-Anzeige</a></div>${champ(d)}${d.league ? leagueScore(d) : ''}
       <h2 class="sec">Boards</h2><div class="boards">${boards.join('')}</div>
       <h2 class="sec">Als Nächstes</h2>${queue(d, 8)}
       ${r ? `<h2 class="sec">Zuletzt beendet</h2>${r}` : ''}</div>`;
@@ -108,7 +136,9 @@ export function bracketHtml(d) {
 }
 
 export function baum(main) {
-  return mount(main, d => d.t.mode === 'swiss' ? swissBaum(d) : `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${champ(d)}
+  return mount(main, d => d.league ? `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${leagueScore(d)}
+    <h2 class="sec">Spielbericht</h2><div class="lg-report">${leagueReport(d)}</div></div>`
+    : d.t.mode === 'swiss' ? swissBaum(d) : `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${champ(d)}
     <div class="bracket-scroll">${bracketHtml(d)}</div><p class="muted small">Auf dem Handy waagerecht wischen.</p></div>`);
 }
 
@@ -166,7 +196,7 @@ export function tabelle(main) {
       : `<p class="muted small">${empty}</p>`}</section>`;
     const hfs = list.flatMap(p => p.hfs.map(v => ({ name: p.name, v }))).sort((a, b) => b.v - a.v);
     const by = (key, f, asc) => list.filter(p => p[key]).sort((a, b) => asc ? a[key] - b[key] : b[key] - a[key]).map(p => ({ name: p.name, v: f(p[key]) }));
-    const status = p => p.place ? `<span class="st ${p.place === 1 ? 'champ-st' : ''}">${p.place}. Platz</span>`
+    const status = p => d.league ? `<span class="st">${esc(d.league.teams[p.team - 1] || '')}</span>` : p.place ? `<span class="st ${p.place === 1 ? 'champ-st' : ''}">${p.place}. Platz</span>`
       : p.withdrawn ? '<span class="st">Zurückgezogen</span>'
       : p.out !== null ? `<span class="st">Aus · ${esc(roundName(d.t, { kind: 'ko', round: p.out }))}</span>`
       : `<span class="st in">Im ${esc(roundName(d.t, { kind: 'ko', round: p.reach }))}</span>`;
@@ -180,14 +210,14 @@ export function tabelle(main) {
       ${d.t.mode === 'swiss' ? `<h2 class="sec">Tabelle · Schweizer System</h2>${swissTable(d)}
       <p class="muted small">Sieg 1 Punkt (auch Freilos und kampflos). Bei Gleichstand zählen Buchholz (Punkte aller Gegner), Leg-Differenz und Average. HF = höchstes Finish ab 101.</p></div>` : ''}
       ${d.t.mode === 'swiss' ? '' : `<h2 class="sec">Tabelle</h2>
-      <div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>Status</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th><th>HF</th>
+      <div class="tbl-scroll"><table class="tbl"><thead><tr><th>#</th><th>Spieler</th><th>${d.league ? 'Team' : 'Status'}</th><th>Sp</th><th>S</th><th>N</th><th>Legs</th><th>+/−</th><th>Ø</th><th>HF</th>
       ${BUCKETS.map(b => `<th>${b === 180 ? '180' : b + '+'}</th>`).join('')}</tr></thead><tbody>
       ${list.map((p, i) => { const df = p.lf - p.la; return `<tr><td class="pos">${i + 1}</td><td><a class="pl" href="#spieler/${p.id}">${esc(p.name)}</a></td><td>${status(p)}</td>
         <td class="num">${p.sp}</td><td class="num">${p.s}</td><td class="num">${p.n}</td><td class="num">${p.lf}:${p.la}</td>
         <td class="num">${df > 0 ? '+' : df < 0 ? '−' : ''}${Math.abs(df)}</td><td class="num">${fmt(p.avg)}</td><td class="num">${p.hf || '–'}</td>
         ${BUCKETS.map(b => `<td class="num ${b === 180 && p.sc[b] ? 'hot' : ''}">${p.sc[b] || '–'}</td>`).join('')}</tr>`; }).join('')}
       </tbody></table></div>
-      <p class="muted small">Ø über alle Aufnahmen im Turnier. HF = höchstes Finish ab 101. 80+ zählt 80–99, 100+ zählt 100–119 usw. Alles entsteht automatisch aus dem Scorer.</p></div>`}`;
+      ${d.league ? '<p class="muted small">Liga: Statistik nur aus den Einzeln, Doppel zählen fürs Team.</p>' : ''}<p class="muted small">Ø über alle Aufnahmen im Turnier. HF = höchstes Finish ab 101. 80+ zählt 80–99, 100+ zählt 100–119 usw. Alles entsteht automatisch aus dem Scorer.</p></div>`}`;
   });
 }
 
@@ -214,9 +244,10 @@ export function halle(main) {
     main.innerHTML = `<div class="hall-wrap">
       <header class="hall-h"><img class="v-logo hall-logo" src="img/vynen26.png" alt="Vynen 26"><img class="bf-logo hall-logo" src="img/bigfish.png" alt="Big Fish VyMa"><h1>${esc(d.t.name)}</h1><span class="clock">${now}</span>
         <button class="btn sm" data-fs type="button">Vollbild</button><a class="btn sm" href="#live">Schließen</a></header>
-      ${champ(d)}
+      ${champ(d)}${d.league ? leagueScore(d, true) : ''}
       <div class="hall-boards b${Math.min(d.t.boards, 8)}">${boards.join('')}</div>
       <div class="hall-panel">${panel === 0 ? info
+        : d.league ? `<h2 class="sec">Spielbericht</h2><div class="lg-report hall-lg">${leagueReport(d, true)}</div>`
         : d.t.mode === 'swiss' && !d.matches.some(m => m.kind === 'ko')
           ? `<h2 class="sec">Tabelle · Runde ${d.swiss.rounds} von ${d.t.swiss.rounds}</h2><div class="hall-tbl">${swissTable(d, 12)}</div>`
           : `<h2 class="sec">${d.t.mode === 'swiss' ? 'KO-Finale' : 'Turnierbaum'}</h2><div class="hall-bk">${bracketHtml(d)}</div>`}</div>

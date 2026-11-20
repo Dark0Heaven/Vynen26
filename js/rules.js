@@ -14,6 +14,10 @@ export function roundCfg(t, m) {
 export function roundName(t, m) {
   if (m.kind === 'p3') return 'Spiel um Platz 3';
   if (m.kind === 'sw') return `Runde ${m.round + 1}`;
+  if (m.kind === 'lg') {
+    const b = t.league && t.league.blocks && t.league.blocks[m.round];
+    return `Spiel ${m.idx + 1} · ${b && b.t === 'd' ? 'Doppel' : 'Einzel'}`;
+  }
   const R = Math.round(Math.log2(t.size));
   const k = R - 1 - m.round;
   return ['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale'][k] || `Runde ${m.round + 1}`;

@@ -27,6 +27,9 @@ const ERR = {
   max_128_players: 'Maximal 128 Spieler.',
   duplicate: 'Dieser Name ist schon angemeldet.',
   not_test: 'Nur Testturniere können gelöscht werden.',
+  need_2_teams: 'Bitte beide Teamnamen eintragen.',
+  already_started: 'Das Spiel läuft schon. Erst unter „Korrekturen“ zurücksetzen.',
+  name_too_long: 'Name zu lang (max. 40 Zeichen).',
 };
 const errText = e => ERR[(e && (e.message || '').trim())] || (e && e.message) || 'Unbekannter Fehler.';
 
@@ -118,7 +121,7 @@ export async function startAdmin(main) {
       for (const x of p || []) if (x.active) pins[x.match_id] = x.pin;
     }
   }
-  function soon() { clearTimeout(timer); timer = setTimeout(async () => { if (!alive) return; await loadAll(); if (tab === 'boards') draw(); }, 300); }
+  function soon() { clearTimeout(timer); timer = setTimeout(async () => { if (!alive) return; await loadAll(); if (tab === 'boards' && !leagueDirty()) draw(); }, 300); }
 
   // ---------- Ansicht ----------
   function draw() {
@@ -180,6 +183,7 @@ export async function startAdmin(main) {
     }
     h += `</div>`;
     if (t.mode === 'swiss') h += swissPanel();
+    if (t.mode === 'league') h += leaguePanel();
     h += `<h2 class="sec">Spielbereit</h2>`;
     if (!ready.length) h += '<p class="muted">Kein Spiel wartet gerade.</p>';
     else h += `<ol class="list adm-q">${ready.map(m => {
@@ -203,6 +207,15 @@ export async function startAdmin(main) {
           msg = `Board-PIN für Board ${b.dataset.bpin}: ${pin}`;
         }
         if (b.dataset.un) { await rpc('admin_unassign', { p_match: b.dataset.un }); msg = 'Board freigegeben.'; }
+        if (b.dataset.lgb !== undefined) {
+          b.disabled = true; let n = 0;
+          for (const row of body.querySelectorAll(`.lg-row[data-block="${b.dataset.lgb}"]`)) {
+            const [ia, ib] = row.querySelectorAll('input');
+            if (!ia || (ia.value.trim() === ia.dataset.orig && ib.value.trim() === ib.dataset.orig)) continue;
+            await rpc('admin_league_set', { p_match: row.dataset.m, p_a: ia.value, p_b: ib.value }); n++;
+          }
+          msg = n ? `${n} Spiel${n > 1 ? 'e' : ''} gespeichert.` : 'Nichts geändert.';
+        }
         if (b.dataset.sw === 'preview') { preview = swissPairing(data.sw); if (!preview) msg = 'Keine gültige Auslosung möglich.'; draw(); return; }
         if (b.dataset.sw === 'cancel') { preview = null; draw(); return; }
         if (b.dataset.sw === 'go' && preview) {
@@ -226,6 +239,37 @@ export async function startAdmin(main) {
       catch (err) { msg = errText(err); draw(); }
     };
   }
+
+  // ---------- Liga: Spieler pro Spiel eintragen ----------
+  function leaguePanel() {
+    const { t, players, matches } = data, L = t.league || { teams: ['Team A', 'Team B'], blocks: [] };
+    const pl = new Map(players.map(p => [p.id, p]));
+    const games = matches.filter(m => m.kind === 'lg').sort((a, b) => a.idx - b.idx);
+    const sc = [0, 0]; for (const m of games) if (['done', 'wo'].includes(m.status) && m.winner) { const tm = (pl.get(m.winner) || {}).team; if (tm) sc[tm - 1]++; }
+    const names = (team, pair) => [...new Set(players.filter(p => p.team === team && p.pair === pair).map(p => p.name))];
+    const dl = (id, list) => `<datalist id="${id}">${list.map(n => `<option value="${esc(n)}">`).join('')}</datalist>`;
+    let h = `<h2 class="sec">Liga · ${esc(L.teams[0])} ${sc[0]} : ${sc[1]} ${esc(L.teams[1])}</h2>
+      <p class="muted small">Spieler pro Spiel eintragen und mit „Speichern“ übernehmen. Danach erscheint das Spiel unter „Spielbereit“. Im Doppel beide Namen eintragen, z. B. „Max &amp; Tim“. Gestartete Spiele lassen sich nur über „Korrekturen“ zurücksetzen.</p>
+      ${dl('lg-s1', names(1, false))}${dl('lg-s2', names(2, false))}${dl('lg-d1', names(1, true))}${dl('lg-d2', names(2, true))}`;
+    L.blocks.forEach((bl, bi) => {
+      const ms = games.filter(m => m.round === bi), dbl = bl.t === 'd', cfg = ms[0] ? roundCfg(t, ms[0]) : null;
+      h += `<section class="card lg-adm"><h3>${dbl ? 'Doppel' : 'Einzel'} · Spiel ${ms[0] ? ms[0].idx + 1 : ''}–${ms.length ? ms[ms.length - 1].idx + 1 : ''}
+        ${cfg ? `<span class="muted small">Best of ${cfg.bo} · ${cfg.start} ${OUT_LABEL[cfg.out]}</span>` : ''}</h3>
+        <div class="lg-head"><span></span><span>${esc(L.teams[0])}</span><span></span><span>${esc(L.teams[1])}</span></div>`;
+      for (const m of ms) {
+        const na = m.player_a ? (pl.get(m.player_a) || {}).name || '' : '', nb = m.player_b ? (pl.get(m.player_b) || {}).name || '' : '';
+        const edit = ['pending', 'ready'].includes(m.status);
+        const res = m.status === 'done' ? `${m.legs_a}:${m.legs_b}` : m.status === 'wo' ? 'w.o.' : ['live', 'review'].includes(m.status) ? `B${m.board}` : m.status === 'ready' ? 'bereit' : '';
+        const inp = (v, team) => edit ? `<input value="${esc(v)}" data-orig="${esc(v)}" maxlength="40" list="lg-${dbl ? 'd' : 's'}${team}" placeholder="${dbl ? 'Name & Name' : 'Name'}" aria-label="Spiel ${m.idx + 1} ${esc(L.teams[team - 1])}">`
+          : `<b>${esc(v)}</b>`;
+        h += `<div class="lg-row ${m.status}" data-m="${m.id}" data-block="${bi}"><span class="no">${m.idx + 1}</span>${inp(na, 1)}<span class="res">${res}</span>${inp(nb, 2)}</div>`;
+      }
+      h += ms.some(m => ['pending', 'ready'].includes(m.status)) ? `<button class="btn sm pri" data-lgb="${bi}">${dbl ? 'Doppel' : 'Einzel'} speichern</button>` : '';
+      h += `</section>`;
+    });
+    return h;
+  }
+  const leagueDirty = () => [...main.querySelectorAll('.lg-row input')].some(i => i.value.trim() !== i.dataset.orig);
 
   // ---------- Schweizer System ----------
   function swissPanel() {
@@ -299,7 +343,7 @@ export async function startAdmin(main) {
           ${m.status !== 'ready' ? `<button class="btn sm" data-reset="${m.id}">Zurücksetzen</button>` : ''}</div></li>`;
       }).join('') || '<li class="muted">Noch keine Spiele mit zwei Spielern.</li>'}</ol>
       <h2 class="sec">Spieler</h2>
-      <form id="addf" class="bbtns addrow"><input id="addn" placeholder="Name für Nachmeldung" maxlength="40" aria-label="Name für Nachmeldung" required>
+      <form id="addf" class="bbtns addrow" ${t.mode === 'league' ? 'hidden' : ''}><input id="addn" placeholder="Name für Nachmeldung" maxlength="40" aria-label="Name für Nachmeldung" required>
         <button class="btn sm pri" type="submit">${t.mode === 'swiss' ? 'Nachmelden (ab nächster Runde)' : 'Nachmelden (in ein Freilos)'}</button></form>
       <ol class="list fixlist">${players.map(p => `<li><div><span class="muted">${p.seed}.</span>
         <input class="inl" data-name="${p.id}" value="${esc(p.name)}" maxlength="40" aria-label="Name von Spieler ${p.seed}">
@@ -432,7 +476,13 @@ export async function startAdmin(main) {
       <div class="flabel">Turniermodus</div>
       <div class="seg modesel" role="radiogroup" aria-label="Turniermodus">
         <button type="button" class="on" data-mode="ko" role="radio" aria-checked="true">KO-Baum</button>
-        <button type="button" data-mode="swiss" role="radio" aria-checked="false">Schweizer System</button></div>
+        <button type="button" data-mode="swiss" role="radio" aria-checked="false">Schweizer System</button>
+        <button type="button" data-mode="league" role="radio" aria-checked="false">Liga</button></div>
+      <div id="lgopt" class="grid2" hidden>
+        <div><label for="lga">Team 1 (Heim)</label><input id="lga" maxlength="40" value="Big Fish VyMa"></div>
+        <div><label for="lgb">Team 2 (Gast)</label><input id="lgb" maxlength="40" placeholder="Gastmannschaft"></div>
+        <p class="muted small" style="grid-column:1/-1">Spieltag: 6 Einzel · 3 Doppel · 6 Einzel, alle 15 Spiele werden gespielt, jedes Spiel = 1 Punkt. Die Spieler trägst du danach unter „Boards“ pro Spiel ein.</p>
+      </div>
       <div id="swopt" class="grid2" hidden>
         <div><label for="swr">Runden</label><select id="swr">${Array.from({ length: 12 }, (_, i) => `<option>${i + 1}</option>`).join('')}</select></div>
         <div><label for="swe">Ende</label><select id="swe"><option value="table">Tabellen-Erster gewinnt</option>
@@ -462,6 +512,8 @@ export async function startAdmin(main) {
       mode = b.dataset.mode;
       body.querySelectorAll('[data-mode]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
       swopt.hidden = mode !== 'swiss';
+      body.querySelector('#lgopt').hidden = mode !== 'league';
+      for (const id of ['#tp', '[for="tp"]', '#ts', '[for="ts"]', '#fromreg', '#unpaid']) { const el = body.querySelector(id); if (el) el.hidden = mode === 'league'; }
       drawCfg();
     });
     f.swr.onchange = () => { roundsTouched = true; };
@@ -469,6 +521,16 @@ export async function startAdmin(main) {
     const drawCfg = () => {
       const n = names().length;
       if (mode === 'swiss') return drawSwissCfg(n);
+      if (mode === 'league') {
+        body.querySelector('#t3l').hidden = true;
+        if (lastKey === 'lg') return;
+        lastKey = 'lg';
+        const d0 = { bo: 5, start: 501, out: 'double' };
+        rc.innerHTML = `<p class="muted small info">15 Spiele · 2 Mannschaften</p>
+          <div class="tblwrap"><table class="cfg"><thead><tr><th>Block</th><th>Best of</th><th>Start</th><th>Out</th><th>Double In</th></tr></thead><tbody>
+          ${cfgRow('r0', 'Einzel 1–6', d0)}${cfgRow('r1', 'Doppel 7–9', d0)}${cfgRow('r2', 'Einzel 10–15', d0)}</tbody></table></div>`;
+        return;
+      }
       body.querySelector('#t3l').hidden = false;
       if (n < 2) { lastKey = ''; rc.innerHTML = '<p class="muted small">Sobald mindestens zwei Spieler eingetragen sind, erscheinen hier die Einstellungen pro Runde.</p>'; return; }
       let sz = 2; while (sz < n) sz *= 2; const R = Math.log2(sz);
@@ -510,6 +572,23 @@ export async function startAdmin(main) {
     if (takeOver) { fill(takeOver); takeOver = null; }
     f.onsubmit = async e => {
       e.preventDefault();
+      const getc = (k) => {
+        const o = {};
+        for (const el of rc.querySelectorAll(`[data-c^="${k}."]`)) {
+          const p = el.dataset.c.split('.')[1];
+          o[p] = el.type === 'checkbox' ? el.checked : p === 'out' ? el.value : Number(el.value);
+        }
+        return o;
+      };
+      if (mode === 'league') {
+        try {
+          await rpc('admin_create_league', { p_name: f.tn.value.trim(), p_date: f.td.value || null, p_boards: Number(f.tb.value),
+            p_teams: [f.lga.value, f.lgb.value], p_rounds: [getc('r0'), getc('r1'), getc('r2')] })
+            .then(id => f.tt.checked ? rpc('admin_set_test', { p_tournament: id, p_test: true }) : null);
+          msg = 'Liga-Spieltag erstellt. Unter „Boards“ die Spieler eintragen.'; tab = 'boards'; await loadAll(); draw();
+        } catch (err) { msg = errText(err); draw(); }
+        return;
+      }
       let list = names();
       if (list.length < 2) { msg = ERR.min_2_players; return draw(); }
       if (f.ts.value === 'rand') for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
