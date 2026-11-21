@@ -65,7 +65,7 @@ export const DEFS = {
   killer: {
     name: 'Killer', group: 'Party', min: 2,
     opts: [opt('lives', 'Leben', [[3, '3'], [5, '5']], 3), opt('assign', 'Zahlen', [['manual', 'Selbst werfen (schwache Hand)'], ['random', 'Zufällig auslosen']], 'manual')],
-    rules: o => `${o.assign === 'manual' ? 'Jeder wirft mit der schwachen Hand einen Dart, die getroffene Zahl ist seine (doppelt: nochmal werfen). Zahlen unten bei den Spielern eintragen. ' : 'Die App lost jedem eine Zahl aus. '} Erst das eigene Double treffen, dann ist man Killer und nimmt mit dem Double eines Gegners ein Leben (${o.lives} Leben). Trifft ein Killer sein eigenes Double, verliert er selbst ein Leben. Wer übrig bleibt, gewinnt.`,
+    rules: o => `${o.assign === 'manual' ? 'Jeder wirft mit der schwachen Hand einen Dart, die getroffene Zahl ist seine (doppelt: nochmal werfen). Zahlen unten bei den Spielern eintragen. ' : 'Die App lost jedem eine Zahl aus. '} Erst das eigene Double treffen, dann ist man Killer und nimmt mit dem Double eines Gegners ein Leben (${o.lives} Leben). Trifft ein Killer sein eigenes Double, verliert er den Killer-Status und muss es erneut treffen. Wer übrig bleibt, gewinnt.`,
     init(S, game) {
       const r = rng(game.seed || 1), nums = Array.from({ length: 20 }, (_, i) => i + 1);
       for (let i = nums.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [nums[i], nums[j]] = [nums[j], nums[i]]; }
@@ -75,7 +75,8 @@ export const DEFS = {
     dart(S, p, d) {
       if (!isDbl(d) || d.t === 25) return;
       const hit = n => { n.lives--; if (n.lives <= 0) { n.lives = 0; n.out = true; } };
-      if (d.t === p.num) { if (!p.killer) p.killer = true; else hit(p); }
+      // Eigenes Double: macht zum Killer, als Killer wird der Status wieder entzogen
+      if (d.t === p.num) { p.killer = !p.killer; S.note = p.killer ? 'Killer!' : 'Killer-Status weg'; }
       else if (p.killer) for (const v of S.P) if (v.num === d.t && !v.out) hit(v);
       const alive = S.P.filter(x => !x.out);
       if (alive.length === 1) S.winner = alive[0].i;
