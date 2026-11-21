@@ -1,6 +1,6 @@
 // Zusätze: Anmeldung, Spielerprofil, Notfall-Paket (Druck + Ergebnis-Datei)
 import { rpc, esc } from './db.js';
-import { roundName } from './rules.js';
+import { roundName, roundCfg, OUT_LABEL } from './rules.js';
 import { watchTournament } from './data.js';
 import { bracketHtml, BUCKETS } from './views.js';
 
@@ -177,4 +177,76 @@ function download(d) {
   a.download = `vynen-ergebnisse-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ---------- Regeln für Spieler (#regeln) ----------
+// Formate kommen aus dem aktuellen Turnier; ohne Turnier gilt der Plan der Turnierleitung.
+const PLAN = { main: [['16tel-Finale', 3], ['Achtelfinale', 3], ['Viertelfinale', 5], ['Halbfinale', 7], ['Finale', 9]], p3: 7,
+  silver: [['Achtelfinale', 3], ['Viertelfinale', 3], ['Halbfinale', 5], ['Finale', 5]] };
+export function regeln(main) {
+  const fmtRow = (name, c) => `<tr><th>${esc(name)}</th><td>Best of ${c.bo}</td><td>${c.start}</td><td>${esc(OUT_LABEL[c.out] || c.out)}${c.din ? ' · Double In' : ''}</td></tr>`;
+  const table = rows => `<div class="tblwrap"><table class="tbl rg-t"><thead><tr><th>Runde</th><th>Legs</th><th>Start</th><th>Out</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const formats = d => {
+    const t = d && d.t;
+    if (!t || t.mode !== 'ko') {
+      const c = bo => ({ bo, start: 501, out: 'double' });
+      return `<p class="muted small">Geplante Formate (werden am Turniertag bestätigt):</p>
+        ${table(PLAN.main.map(([n, b]) => fmtRow(n, c(b))).join('') + fmtRow('Spiel um Platz 3', c(PLAN.p3)))}
+        <h3 class="rg-h3">Silver Cup</h3>${table(PLAN.silver.map(([n, b]) => fmtRow(n, c(b))).join(''))}`;
+    }
+    const R = Math.round(Math.log2(t.size)), main = [];
+    for (let r = 0; r < R; r++) main.push(fmtRow(roundName(t, { kind: 'ko', round: r }), roundCfg(t, { kind: 'ko', round: r })));
+    if (t.third_place) main.push(fmtRow('Spiel um Platz 3', roundCfg(t, { kind: 'p3' })));
+    let h = table(main.join(''));
+    if (t.silver) {
+      const sR = Math.round(Math.log2(t.size / 2)), rows = [];
+      for (let r = 0; r < sR; r++) rows.push(fmtRow(roundName(t, { kind: 'sc', round: r }).replace('Silver Cup · ', ''), roundCfg(t, { kind: 'sc', round: r })));
+      h += `<h3 class="rg-h3">Silver Cup</h3>${table(rows.join(''))}`;
+    }
+    return h;
+  };
+  const sec = (title, items) => `<section class="card rg-sec"><h2 class="sec">${title}</h2><ul class="rg-l">${items.map(i => `<li>${i}</li>`).join('')}</ul></section>`;
+  const draw = d => {
+    const silver = !d || d.t.mode !== 'ko' || d.t.silver;
+    main.innerHTML = `<div class="wrap rg"><h1 class="tt">Regeln</h1>
+      <p class="muted">Neujahrsdart-Turnier Vynen 26 · Sa 27.02.2027 · 17:00 Uhr · Platzhaus Vynen</p>
+      ${sec('Ablauf', [
+        'Bitte bis <b>17:00 Uhr</b> da sein und das <b>Startgeld von 20 €</b> (inkl. Freigetränke) bar bezahlen. Danach wird ausgelost.',
+        'Gespielt wird im <b>KO-System</b>: Wer verliert, scheidet aus dem Hauptturnier aus.',
+        silver ? 'Wer in der <b>1. Runde</b> verliert, spielt im <b>Silver Cup</b> weiter, einem eigenen KO-Baum. So hat jeder mindestens zwei Spiele.' : '',
+        'Die beiden Verlierer der Halbfinale spielen das <b>Spiel um Platz 3</b>.',
+        'Wann und an welchem Board du spielst, siehst du live auf <b>vynen26.de</b> und auf dem Bildschirm in der Halle. Wirst du aufgerufen, geh bitte direkt zum Board.',
+      ].filter(Boolean))}
+      <section class="card rg-sec"><h2 class="sec">Spielmodus</h2>
+        <p>Alle Spiele: <b>501, Double Out</b>. Ein Leg gewinnt, wer genau auf 0 kommt und dabei mit einem <b>Double</b> (oder dem Bull) ausmacht.</p>
+        ${formats(d)}
+        <p class="muted small">„Best of 3“ heißt: Wer zuerst 2 Legs gewinnt, gewinnt das Spiel. Best of 5 = 3 Legs, Best of 7 = 4, Best of 9 = 5.</p></section>
+      ${sec('Am Board', [
+        'Vor dem Spiel wird <b>ausgebullt</b>: Jeder wirft einen Dart aufs Bull, wer näher dran ist, beginnt das erste Leg.',
+        'Danach wechselt der <b>Anwurf</b> mit jedem Leg. Kommt es zum <b>Entscheidungs-Leg</b>, wird noch einmal ausgebullt.',
+        'Eine <b>Aufnahme</b> sind 3 Darts. Es zählen nur Darts, die nach der Aufnahme <b>im Board stecken</b>. Abpraller und herausgefallene Darts zählen 0.',
+        '<b>Überworfen</b> (unter 0, genau 1 Rest oder 0 ohne Double): Die ganze Aufnahme zählt nicht, der Rest bleibt wie vorher.',
+        'Geworfen wird hinter der <b>Wurflinie</b> (2,37 m vom Board). Der Fuß darf die Linie nicht übertreten.',
+        'Darts erst ziehen, wenn der <b>Schiri</b> die Punkte eingetragen hat.',
+      ])}
+      ${sec('Schiri und Wertung', [
+        'An jedem Board tippt ein Schiri die Punkte ins Tablet. Der Spielstand ist sofort live für alle sichtbar.',
+        'Siehst du einen Fehler, sag es <b>sofort</b>, noch bevor die Darts gezogen sind. Der Schiri kann jede Eingabe rückgängig machen.',
+        'Am Ende des Spiels prüft der Schiri das Ergebnis und bestätigt es. Danach geht es nur noch über die Turnierleitung zu ändern.',
+        'Bei Streitfragen entscheidet die <b>Turnierleitung</b>.',
+      ])}
+      ${sec('Fairplay', [
+        'Kein Ablenken des Gegners beim Werfen: Abstand halten, leise sein, nicht in die Wurfbahn laufen.',
+        'Handys bitte stumm, und keine Getränke im Wurfbereich abstellen.',
+        'Wer sein Spiel nicht antreten kann oder aufgibt, meldet sich bei der Turnierleitung. Das Spiel wird dann kampflos gewertet.',
+      ])}
+      ${sec('Preise', [
+        '<b>Preisgeld für Platz 1 bis 3</b> und ein <b>Pokal</b> für den Sieger.',
+        'Das Preisgeld ergibt sich aus den Startgeldern abzüglich Getränke und Essen und wird am Turniertag bekanntgegeben.',
+        '🌭 Currywurst gibt es vor Ort zu kaufen.',
+      ])}
+      <p class="muted small">Änderungen durch die Turnierleitung vorbehalten.</p></div>`;
+  };
+  draw(null);
+  return watchTournament(d => draw(d && d.t ? d : null), () => {});
 }

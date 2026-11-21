@@ -563,3 +563,14 @@ body.play:has(.cam-panel:not([hidden]):not(.full)) .play-g{padding-top:110px}
 .ntoast.out{opacity:0;transform:translateY(8px)}
 @keyframes tin{from{opacity:0;transform:translateY(10px)}}
 @media (prefers-reduced-motion:reduce){.ntoast{animation:none;transition:none}}
+
+/* Regeln */
+.rg-sec{padding:12px 16px;margin:14px 0;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.rg-sec .sec{margin:0 0 8px}
+.rg-l{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;font-size:17px;line-height:1.45}
+.rg-l b,.rg-sec p b{color:var(--gold)}
+.rg-sec p{font-size:17px;line-height:1.45;margin:0 0 10px}
+.rg-t{min-width:0}
+.rg-t th,.rg-t td{text-align:left}
+.rg-h3{margin:14px 0 6px;font-size:18px;text-transform:uppercase;color:#cfd8e3}
+.rg-t th,.rg-t td{padding:8px 6px;font-size:15px}.rg-t tbody th{font-size:12px}
