@@ -52,7 +52,7 @@ export function anmelden(main) {
   const draw = (info, msg = '', ok = false) => {
     if (!alive) return;
     if (!info) { main.innerHTML = '<p class="pd">Keine Verbindung. Bitte später neu laden.</p>'; return; }
-    const head = `<h2>Anmeldung</h2><p class="muted">Neujahrsdart-Turnier Vynen 26 · Sa 27.02.2027 · Platzhaus Vynen<br>
+    const head = `<h2>Anmeldung</h2><p class="muted">Neujahrsdart-Turnier Vynen 26 · Sa 27.02.2027 · 17:00 Uhr · Platzhaus Vynen<br>
       Startgeld ${info.fee} € bar vor Ort${info.deadline ? ` · Anmeldeschluss ${dateDe(info.deadline)}` : ''}</p>`;
     if (ok) { main.innerHTML = `<div class="adm-box">${head}<p class="note ok-note" role="status">${esc(msg)}</p>
       ${installGuide()}<a class="btn" href="#live">Zur Live-Ansicht</a></div>`; wireInstall(main); return; }
