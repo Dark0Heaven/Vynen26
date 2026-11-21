@@ -84,6 +84,10 @@ export function spielen(main) {
     if (!isCk(s.type) && !DEFS[s.type]) s.type = 'cricket';
     s.opts = s.opts || {};
     const opts = () => optionsOf(s.type, s.opts[s.type]);
+    s.knums = s.knums || {};
+    const manualNums = () => s.type === 'killer' && opts().assign === 'manual';
+    // Killer mit selbst geworfenen Zahlen: alle brauchen eine Zahl, keine doppelt
+    const numsOk = () => { if (!manualNums()) return true; const v = players.map(n => Number(s.knums[n]) || 0); return v.every(x => x) && new Set(v).size === v.length; };
     let players = [...s.players];
     const draw = () => {
       main.innerHTML = `<div class="wrap play-setup"><h1 class="tt">Spielen</h1>
@@ -100,13 +104,17 @@ export function spielen(main) {
         <form id="pa" class="bbtns addrow"><input id="pn" maxlength="24" placeholder="Name" aria-label="Spielername" autocomplete="off">
           <button class="btn pri" type="submit">Hinzufügen</button></form>
         <ol class="list play-pl">${players.map((n, i) => `<li><span><span class="muted">${i + 1}.</span> ${esc(n)}</span>
+          ${manualNums() ? `<select class="knum" data-knum="${esc(n)}" aria-label="Zahl von ${esc(n)}"><option value="">Zahl</option>${Array.from({ length: 20 }, (_, k) => k + 1).map(v =>
+            `<option value="${v}" ${Number(s.knums[n]) === v ? 'selected' : ''}>${v}</option>`).join('')}</select>` : ''}
           <span class="bbtns"><button class="btn sm" data-up="${i}" aria-label="${esc(n)} nach oben" ${i ? '' : 'disabled'}>↑</button>
           <button class="btn sm" data-rm="${i}" aria-label="${esc(n)} entfernen">✕</button></span></li>`).join('') || `<li class="muted">Noch keine Spieler. ${minPlayers(s.type) > 1 ? 'Mindestens zwei eintragen.' : 'Mindestens einen eintragen.'}</li>`}</ol>
         <div class="bbtns"><button class="btn" data-k="shuffle" ${players.length > 1 ? '' : 'disabled'}>Reihenfolge auslosen</button>
-          <button class="btn pri big" data-k="start" ${players.length >= minPlayers(s.type) ? '' : 'disabled'}>Spiel starten</button></div></div>`;
+          <button class="btn pri big" data-k="start" ${players.length >= minPlayers(s.type) && numsOk() ? '' : 'disabled'}>Spiel starten</button></div>
+        ${manualNums() && !numsOk() && players.length ? '<p class="muted small">Jeder Spieler braucht eine eigene Zahl. Doppelte Zahl: nochmal werfen.</p>' : ''}</div>`;
       const f = main.querySelector('#pa');
       main.querySelector('#gt').onchange = e => { s.type = e.target.value; persist(); draw(); };
       const gv = main.querySelector('#gv'); if (gv) gv.onchange = e => { s.variant = e.target.value; persist(); draw(); };
+      main.querySelectorAll('[data-knum]').forEach(el => el.onchange = () => { s.knums[el.dataset.knum] = el.value; persist(); draw(); });
       main.querySelectorAll('[data-opt]').forEach(el => el.onchange = () => { s.opts[s.type] = { ...opts(), [el.dataset.opt]: el.value }; persist(); draw(); });
       f.onsubmit = e => { e.preventDefault(); const n = f.pn.value.trim(); if (n) { players.push(n); persist(); draw(); main.querySelector('#pn').focus(); } };
     };
@@ -118,7 +126,7 @@ export function spielen(main) {
       else if (b.dataset.rm !== undefined) { players.splice(Number(b.dataset.rm), 1); persist(); draw(); }
       else if (b.dataset.up !== undefined) { const i = Number(b.dataset.up); [players[i - 1], players[i]] = [players[i], players[i - 1]]; persist(); draw(); }
       else if (b.dataset.k === 'shuffle') { for (let i = players.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [players[i], players[j]] = [players[j], players[i]]; } persist(); draw(); }
-      else if (b.dataset.k === 'start') { game = { type: s.type, variant: s.variant, opts: isCk(s.type) ? null : opts(), players: [...players], darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; play(); }
+      else if (b.dataset.k === 'start') { game = { type: s.type, variant: s.variant, opts: isCk(s.type) ? null : opts(), nums: manualNums() ? players.map(n => Number(s.knums[n])) : null, players: [...players], darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; play(); }
     };
     draw();
   }
@@ -220,7 +228,8 @@ export function spielen(main) {
       case 'rematch': {
         // Revanche: gleiche Spieler, der bisherige Startspieler rückt ans Ende
         const pl = [...game.players.slice(1), game.players[0]];
-        game = { ...game, players: pl, darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; return play();
+        const nums = game.nums ? [...game.nums.slice(1), game.nums[0]] : null;
+        game = { ...game, players: pl, nums, darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; return play();
       }
       case 'new': game = null; store.del(KEY); if (cam) cam.stop(); return setup();
     }

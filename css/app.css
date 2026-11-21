@@ -536,3 +536,7 @@ body.play:has(.cam-panel:not([hidden]):not(.full)) .play-g{padding-top:110px}
 .play-pad .tg.all button{min-height:52px;font-size:26px}
 .play-pad .tg.all button.miss{grid-column:1/-1}
 @media (max-width:520px){.play-pad .tg.all{grid-template-columns:repeat(6,1fr);gap:6px}.play-pad .tg.all button{min-height:46px;font-size:22px}}
+.play-pl li{gap:8px}
+.play-pl li>span:first-child{flex:1;min-width:0}
+.play-pl .knum{flex:none;width:86px;min-width:0}
+.play-pl li .bbtns{flex:none;flex-wrap:nowrap}
