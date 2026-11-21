@@ -104,20 +104,42 @@ export const DEFS = {
     rank: S => [...S.P].sort((a, b) => (b.i === S.winner) - (a.i === S.winner) || b.score - a.score).map(p => ({ ...p, sub: `${p.score} Punkte` })),
   },
   halveit: {
-    name: 'Halve It', group: 'Party', min: 1, opts: [],
-    seq: [15, 16, 'D', 17, 18, 'T', 19, 20, 25],
-    rules: () => 'Start mit 40 Punkten. Jede Runde hat ein Ziel (15, 16, beliebiges Double, 17, 18, beliebiges Triple, 19, 20, Bull). Treffer zählen ihren Wert. Wer in einer Aufnahme das Ziel gar nicht trifft, wird halbiert.',
+    name: 'Halve It', group: 'Party', min: 1,
+    opts: [opt('mode', 'Runden', [['classic', 'Klassisch'], ['mix', 'Mit Sonderrunden'], ['random', 'Zufällige Sonderrunden']], 'classic')],
+    classic: [15, 16, 'D', 17, 18, 'T', 19, 20, 25],
+    mix: [20, '3F', 16, 'D', '41', 17, '3Z', 'T', 18, 'RG', 19, 'ODD', 25],
+    pool: [15, 16, 17, 18, 19, 20, 25, 'D', 'T', '41', '3F', '3Z', 'RG', 'ODD', 'EVEN'],
+    seq(S) { return S.seq; },
+    init(S, game) {
+      const H = DEFS.halveit;
+      if (S.o.mode === 'random') {
+        const r = rng(game.seed || 3), pool = [...H.pool];
+        for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+        S.seq = [...pool.slice(0, 9), 25].filter((v, i, a) => a.indexOf(v) === i).slice(0, 10);
+      } else S.seq = S.o.mode === 'mix' ? H.mix : H.classic;
+    },
+    rules: o => `Start mit 40 Punkten. Jede Runde hat ein Ziel, Treffer zählen ihren Wert. Wer in einer Aufnahme das Ziel nicht schafft, wird halbiert.${o.mode !== 'classic'
+      ? ' Sonderrunden: „3 Farben“ (schwarz, weiß, rot, grün – drei verschiedene in einer Aufnahme), „3 Zahlen“ (drei verschiedene Zahlen), „Genau 41“ (Aufnahme ergibt genau 41), „Rot/Grün“ (nur farbige Ringe und Bull), „Ungerade“/„Gerade“ (nur solche Zahlen). Bei Farben/Zahlen/41 zählt die ganze Aufnahme.' : ''}`,
     player: () => ({ score: 40, halved: 0 }),
-    visitStart: (S, p) => { p.hit = false; },
+    visitStart: (S, p) => { p.hit = false; p.vd = []; },
     dart(S, p, d) {
-      const t = DEFS.halveit.seq[S.round];
-      const ok = t === 'D' ? isDbl(d) : t === 'T' ? d.t && d.m === 3 : d.t === t;
+      const t = S.seq[S.round]; p.vd.push(d);
+      const ok = t === 'D' ? isDbl(d) : t === 'T' ? d.t && d.m === 3 : t === 'RG' ? d.t && (d.m >= 2 || d.t === 25)
+        : t === 'ODD' ? d.t && d.t !== 25 && d.t % 2 === 1 : t === 'EVEN' ? d.t && d.t !== 25 && d.t % 2 === 0
+        : typeof t === 'number' ? d.t === t : false;
       if (ok) { p.score += val(d); p.hit = true; }
     },
-    visitEnd(S, p) { if (!p.hit) { p.score = Math.ceil(p.score / 2); p.halved++; } },
-    roundEnd: S => { if (S.round >= DEFS.halveit.seq.length) endByScore(S, (a, b) => b.score - a.score); },
-    highlight: S => { const t = DEFS.halveit.seq[S.round]; return typeof t === 'number' ? [t] : []; },
-    info: S => { const t = DEFS.halveit.seq[S.round]; return `Runde ${S.round + 1} von 9 · Ziel: ${t === 'D' ? 'beliebiges Double' : t === 'T' ? 'beliebiges Triple' : lbl(t)}`; },
+    visitEnd(S, p) {
+      const t = S.seq[S.round], vd = p.vd, sum = vd.reduce((a, d) => a + val(d), 0);
+      if (t === '41' && sum === 41) { p.score += 41; p.hit = true; }
+      if (t === '3F' && new Set(vd.filter(d => d.t).map(color)).size >= 3) { p.score += sum; p.hit = true; }
+      if (t === '3Z' && vd.every(d => d.t) && new Set(vd.map(d => d.t)).size === 3) { p.score += sum; p.hit = true; }
+      if (!p.hit) { p.score = Math.ceil(p.score / 2); p.halved++; S.note = 'Halbiert!'; }
+    },
+    roundEnd: S => { if (S.round >= S.seq.length) endByScore(S, (a, b) => b.score - a.score); },
+    highlight: S => { const t = S.seq[S.round]; return typeof t === 'number' ? [t] : t === 'RG' ? [25] : []; },
+    label: t => ({ D: 'beliebiges Double', T: 'beliebiges Triple', '41': 'genau 41 in der Aufnahme', '3F': '3 verschiedene Farben', '3Z': '3 verschiedene Zahlen', RG: 'nur Rot/Grün (Ringe, Bull)', ODD: 'nur ungerade Zahlen', EVEN: 'nur gerade Zahlen' })[t] || lbl(t),
+    info: S => `Runde ${S.round + 1} von ${S.seq.length} · Ziel: ${DEFS.halveit.label(S.seq[S.round])}`,
     cols: ['Punkte', 'Halbiert'], row: p => [`<b class="big">${p.score}</b>`, p.halved || ''],
     rank: S => [...S.P].sort((a, b) => b.score - a.score).map(p => ({ ...p, sub: `${p.score} Punkte · ${p.halved}× halbiert` })),
   },
@@ -221,6 +243,14 @@ export const DEFS = {
     rank: S => [...S.P].sort((a, b) => b.score - a.score).map(p => ({ ...p, sub: `${p.score} Punkte` })),
   },
 };
+
+// Farbe eines Treffers: Singles schwarz/weiß im Wechsel (20 schwarz), Ringe rot/grün, Bull grün (25) bzw. rot (50)
+const SEG = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
+function color(d) {
+  if (d.t === 25) return d.m >= 2 ? 'rot' : 'grün';
+  const dark = SEG.indexOf(d.t) % 2 === 0;
+  return d.m === 1 ? (dark ? 'schwarz' : 'weiß') : (dark ? 'rot' : 'grün');
+}
 
 function kick(S, p) {
   for (const o of S.P) if (o !== p && o.score === p.score && p.score > 0) { o.score = 0; o.kicked++; p.kicks++; S.note = `${o.name} gekickt!`; }
