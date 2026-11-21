@@ -46,7 +46,7 @@ export const DEFS = {
     name: 'Elimination / Gotcha (hochzählen + kicken)', group: 'Party', min: 2,
     opts: [opt('target', 'Ziel', [[301, '301'], [501, '501']], 501),
       opt('out', 'Ausmachen', [['s', 'Genau treffen'], ['d', 'Mit Double']], 's'),
-      opt('kick', 'Kicken', [['visit', 'Nach der Aufnahme'], ['dart', 'Nach jedem Dart']], 'visit')],
+      opt('kick', 'Kicken', [['dart', 'Nach jedem Dart'], ['visit', 'Nach der Aufnahme']], 'dart')],
     rules: o => `Alle zählen von 0 hoch, wer genau ${o.target}${o.out === 'd' ? ' mit einem Double' : ''} erreicht, gewinnt. Wer ${o.kick === 'dart' ? 'nach einem Dart' : 'nach seiner Aufnahme'} auf demselben Stand landet wie ein Gegner, kickt ihn zurück auf 0. Überworfen: Aufnahme zählt nicht.`,
     player: () => ({ score: 0, kicks: 0, kicked: 0, scored: 0 }),
     visitStart: (S, p) => { p.snap = p.score; },
