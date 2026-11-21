@@ -214,6 +214,7 @@ export function spielen(main) {
     if (b.dataset.t !== undefined) {
       const t = Number(b.dataset.t);
       game.darts.push({ t, m: t ? mult : 0 }); mult = 1; save();
+      if (cam && cam.active) cam.manual();
       if (navigator.vibrate) try { navigator.vibrate(15); } catch {}
       return play();
     }

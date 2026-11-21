@@ -1,7 +1,7 @@
 // Kamera-Zählung (Beta) für Cricket/Tactics.
 // Prinzip: Board einmessen (4 Punkte → Homographie), Bild vor/nach jedem Wurf vergleichen,
 // Spitze des neuen Darts schätzen, Feld berechnen, als Vorschlag anzeigen (Auto-Übernahme nach Countdown).
-import { store } from './db.js';
+import { store, sb, uuid } from './db.js';
 
 const KEY = 'vynen-cam-cal';
 const SEG = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
@@ -94,6 +94,8 @@ export function createCamera(opts) {
   let pw = PW, ph = 240, cvs = null, ctx = null, ref = null, prev = null, empty = null, boardMask = null, boardPix = 0;
   let mode = 'off', stable = 0, proposal = null, countdown = 0, cdTimer = null, auto = store.get('vynen-cam-auto', true);
   let lastVisit = 0, msg = '';
+  // Trainingsfotos: alle Darts der laufenden Aufnahme mit Spitze (normiert) und Feld
+  let collect = store.get('vynen-cam-collect', false), visitTips = [], tipAsk = null, sent = store.get('vynen-cam-sent', 0);
   const panel = document.createElement('div');
   panel.className = 'cam-panel'; panel.hidden = true;
   document.body.appendChild(panel);
@@ -158,7 +160,7 @@ export function createCamera(opts) {
     if (mode === 'pull') {
       // Nach der Aufnahme: warten, bis das Board wieder leer und ruhig ist
       const vsEmpty = empty ? diffCount(cur, empty, 30) : 0;
-      if (stable >= 3 && vsEmpty < boardPix * 0.004) { ref = cur; empty = cur; mode = 'watch'; msg = ''; render(); }
+      if (stable >= 3 && vsEmpty < boardPix * 0.004 && !tipAsk) { ref = cur; empty = cur; mode = 'watch'; msg = ''; visitTips = []; render(); }
       return;
     }
     if (proposal || stable < 2) return;
@@ -172,7 +174,7 @@ export function createCamera(opts) {
     const [bx, by] = apply(H, tx / pw, ty / ph);
     const f = segmentAt(bx, by);
     const hit = f.s && opts.targets.includes(f.s);
-    proposal = { t: hit ? f.s : 0, m: hit ? f.m : 0, label: f.label, game: hit ? f.label : `${f.label} → Fehlwurf`, tip: [tx / pw, ty / ph], frame: cur };
+    proposal = { t: hit ? f.s : 0, m: hit ? f.m : 0, s: f.s, sm: f.m, label: f.label, game: hit ? f.label : `${f.label} → Fehlwurf`, tip: [tx / pw, ty / ph], frame: cur };
     msg = '';
     if (auto) { countdown = 3; clearInterval(cdTimer); cdTimer = setInterval(() => { countdown--; if (countdown <= 0) accept(); else render(); }, 1000); }
     if (navigator.vibrate) try { navigator.vibrate(30); } catch {}
@@ -181,7 +183,29 @@ export function createCamera(opts) {
   function accept() {
     clearInterval(cdTimer); if (!proposal) return;
     const p = proposal; proposal = null; ref = p.frame;
+    if (p.s) { visitTips.push({ k: opts.visitInfo().inVisit, x: +p.tip[0].toFixed(4), y: +p.tip[1].toFixed(4), s: p.s, m: p.sm, src: 'auto' }); if (collect) upload(); }
     opts.onDart(p.t, p.m);
+  }
+  // Foto + Beschriftung hochladen (ohne Login; Fehler werden still ignoriert)
+  async function upload() {
+    if (!video || !cal) return;
+    try {
+      const W = Math.min(800, video.videoWidth), Hh = Math.round(W * video.videoHeight / video.videoWidth);
+      const c = document.createElement('canvas'); c.width = W; c.height = Hh; c.getContext('2d').drawImage(video, 0, 0, W, Hh);
+      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+      if (!blob || blob.size > 400000) return;
+      const path = `v1/${new Date().toISOString().slice(0, 10)}/${uuid()}.jpg`;
+      const up = await sb.storage.from('training').upload(path, blob, { contentType: 'image/jpeg' });
+      if (up.error) return;
+      await sb.from('training_samples').insert({ path, w: W, h: Hh, cal: cal.map(p => [+p.x.toFixed(4), +p.y.toFixed(4)]),
+        darts: visitTips.slice(-3).map(({ k, ...d }) => d), device: navigator.userAgent.slice(0, 190) });
+      sent++; store.set('vynen-cam-sent', sent); render();
+    } catch { /* Sammeln ist optional */ }
+  }
+  // Vom Spiel: Dart wurde von Hand eingetragen. Beim Sammeln nach der Spitze fragen.
+  function manual() {
+    if (!collect || !video || mode !== 'watch') return;
+    tipAsk = true; render();
   }
   function reject() { clearInterval(cdTimer); if (proposal) ref = grab(); proposal = null; msg = 'Bitte den Dart unten antippen.'; render(); }
 
@@ -189,6 +213,7 @@ export function createCamera(opts) {
   function sync() {
     if (!video || mode === 'calib' || mode === 'off') return;
     const { inVisit } = opts.visitInfo();
+    if (mode === 'watch' && inVisit > 0) visitTips = visitTips.filter(t => t.k < inVisit); // Rückgängig
     if (inVisit === 0 && lastVisit > 0) { mode = 'pull'; msg = 'Darts ziehen – danach geht es automatisch weiter.'; proposal = null; clearInterval(cdTimer); }
     else if (mode === 'watch') ref = grab(); // manuell getippt: aktuelles Bild als neue Referenz
     lastVisit = inVisit; render();
@@ -201,6 +226,7 @@ export function createCamera(opts) {
     panel.hidden = false;
     if (mode === 'error') { panel.innerHTML = `<div class="cam-bar"><span>${msg}</span><button class="btn sm" data-c="close">Schließen</button></div>`; return; }
     if (mode === 'calib') return renderCalib();
+    if (tipAsk) return renderTipAsk();
     const pr = proposal;
     panel.className = 'cam-panel';
     panel.innerHTML = `<div class="cam-bar">
@@ -210,7 +236,8 @@ export function createCamera(opts) {
         : `<span class="muted small">Kamera (Beta) · ${['1.', '2.', '3.'][opts.visitInfo().inVisit] || ''} Dart</span><b>${msg || 'Bereit – werfen!'}</b>`}</div>
       <div class="cam-btns">${pr ? `<button class="btn pri" data-c="ok">✓ ${auto ? countdown : ''}</button><button class="btn" data-c="no">✕</button>`
         : `<button class="btn sm" data-c="free">Board frei</button><button class="btn sm" data-c="calib">Einmessen</button>
-           <button class="btn sm ${auto ? 'on' : ''}" data-c="auto" aria-pressed="${auto}">Auto ${auto ? 'an' : 'aus'}</button><button class="btn sm" data-c="close">Aus</button>`}</div></div>`;
+           <button class="btn sm ${auto ? 'on' : ''}" data-c="auto" aria-pressed="${auto}">Auto ${auto ? 'an' : 'aus'}</button>
+           <button class="btn sm ${collect ? 'on' : ''}" data-c="collect" aria-pressed="${collect}" title="Fotos fürs KI-Training sammeln">📸 ${collect ? sent : 'Sammeln'}</button><button class="btn sm" data-c="close">Aus</button>`}</div></div>`;
     const mini = panel.querySelector('.cam-mini');
     video.className = 'cam-video'; mini.appendChild(video); video.play().catch(() => {});
     const oc = document.createElement('canvas'); oc.className = 'cam-ov'; mini.appendChild(oc);
@@ -300,6 +327,28 @@ export function createCamera(opts) {
       if (calPts.length === 4) drawOverlay(oc);
     });
   }
+  // Spitze eines von Hand eingetragenen Darts antippen (für die Trainingsdaten)
+  function renderTipAsk() {
+    panel.className = 'cam-panel full';
+    panel.innerHTML = `<div class="cam-cal"><div class="cam-stage"></div>
+      <div class="cam-cal-bar"><b>📸 Tippe auf die <span class="gold">Spitze</span> des letzten Darts</b>
+        <span class="muted small">Damit lernt die Erkennung dazu. Daneben geworfen oder nicht zu sehen: Überspringen.</span>
+        <div class="bbtns"><button class="btn" data-c="tipskip">Überspringen</button></div></div></div>`;
+    const stage = panel.querySelector('.cam-stage');
+    video.className = 'cam-video'; stage.appendChild(video); video.play().catch(() => {});
+    const oc = document.createElement('canvas'); oc.className = 'cam-ov'; stage.appendChild(oc);
+    requestAnimationFrame(() => {
+      const box = videoBox(stage);
+      Object.assign(oc.style, { left: box.x + 'px', top: box.y + 'px', width: box.w + 'px', height: box.h + 'px' });
+      oc.width = box.w; oc.height = box.h; drawOverlay(oc);
+      oc.onclick = e => {
+        const r = oc.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+        const [bx, by] = apply(H, x, y), f = segmentAt(bx, by);
+        visitTips.push({ k: Math.max(0, (opts.visitInfo().inVisit || 3) - 1), x: +x.toFixed(4), y: +y.toFixed(4), s: f.s, m: f.m, src: 'tap' });
+        tipAsk = null; upload(); ref = grab(); render();
+      };
+    });
+  }
   // Wo liegt das Videobild innerhalb des Containers (object-fit: contain)
   function videoBox(el) {
     const W = el.clientWidth, Hh = el.clientHeight, r = video.videoWidth / video.videoHeight;
@@ -313,12 +362,14 @@ export function createCamera(opts) {
     if (c === 'close') { stop(); opts.onClose && opts.onClose(); }
     if (c === 'ok') accept();
     if (c === 'no') reject();
-    if (c === 'free') { resetRef(true); mode = 'watch'; msg = ''; render(); }
+    if (c === 'free') { resetRef(true); mode = 'watch'; msg = ''; visitTips = []; render(); }
     if (c === 'calib' || c === 'recal') { calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
     if (c === 'calback') { calPts.pop(); render(); }
     if (c === 'calok') { mode = 'watch'; resetRef(true); msg = ''; render(); }
     if (c === 'auto') { auto = !auto; store.set('vynen-cam-auto', auto); render(); }
+    if (c === 'collect') { collect = !collect; store.set('vynen-cam-collect', collect); msg = collect ? 'Sammeln an: Board-Fotos gehen an die Leitung (Personen bitte nicht ins Bild).' : ''; render(); }
+    if (c === 'tipskip') { tipAsk = null; render(); }
   });
 
-  return { start, stop, sync, get active() { return mode !== 'off'; } };
+  return { start, stop, sync, manual, get active() { return mode !== 'off'; } };
 }

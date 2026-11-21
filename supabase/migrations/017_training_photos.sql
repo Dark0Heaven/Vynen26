@@ -1,0 +1,3 @@
+-- Trainingsfotos fürs eigene Erkennungsmodell: Storage-Bucket 'training' (nur einfügen, JPEG ≤ 400 KB, Ordner v1/),
+-- Tabelle training_samples (path, w, h, cal = 4 Einmesspunkte normiert, darts = [{x,y,s,m,src}]).
+-- Lesen/Löschen nur Leitung. Vollständige Fassung: Supabase-Migration 017_training_photos.
