@@ -1,5 +1,5 @@
 // Zusätze: Anmeldung, Spielerprofil, Notfall-Paket (Druck + Ergebnis-Datei)
-import { rpc, esc } from './db.js';
+import { rpc, esc, sb } from './db.js';
 import { roundName, roundCfg, OUT_LABEL } from './rules.js';
 import { watchTournament } from './data.js';
 import { bracketHtml, BUCKETS } from './views.js';
@@ -53,7 +53,7 @@ export function anmelden(main) {
     if (!alive) return;
     if (!info) { main.innerHTML = '<p class="pd">Keine Verbindung. Bitte später neu laden.</p>'; return; }
     const head = `<h2>Anmeldung</h2><p class="muted">Neujahrsdart-Turnier Vynen 26 · Sa 27.02.2027 · 17:00 Uhr · Platzhaus Vynen<br>
-      Startgeld ${info.fee} € bar vor Ort${info.deadline ? ` · Anmeldeschluss ${dateDe(info.deadline)}` : ''}</p>`;
+      Startgeld ${info.fee} € inkl. Freigetränke und Currywurst, bar vor Ort${info.deadline ? ` · Anmeldeschluss ${dateDe(info.deadline)}` : ''}</p>`;
     if (ok) { main.innerHTML = `<div class="adm-box">${head}<p class="note ok-note" role="status">${esc(msg)}</p>
       ${installGuide()}<a class="btn" href="#live">Zur Live-Ansicht</a></div>`; wireInstall(main); return; }
     if (!info.open) { main.innerHTML = `<div class="adm-box">${head}<p class="note">Die Online-Anmeldung ist geschlossen. Nachmelden geht am Turniertag vor Ort.</p>${installGuide()}</div>`; wireInstall(main); return; }
@@ -211,7 +211,7 @@ export function regeln(main) {
     main.innerHTML = `<div class="wrap rg"><h1 class="tt">Regeln</h1>
       <p class="muted">Neujahrsdart-Turnier Vynen 26 · Sa 27.02.2027 · 17:00 Uhr · Platzhaus Vynen</p>
       ${sec('Ablauf', [
-        'Bitte bis <b>17:00 Uhr</b> da sein und das <b>Startgeld von 20 €</b> (inkl. Freigetränke) bar bezahlen. Danach wird ausgelost.',
+        'Bitte bis <b>17:00 Uhr</b> da sein und das <b>Startgeld von 20 €</b> bar bezahlen. Darin sind <b>Freigetränke und Currywurst</b> enthalten. Danach wird ausgelost.',
         'Gespielt wird im <b>KO-System</b>: Wer verliert, scheidet aus dem Hauptturnier aus.',
         silver ? 'Wer in der <b>1. Runde</b> verliert, spielt im <b>Silver Cup</b> weiter, einem eigenen KO-Baum. So hat jeder mindestens zwei Spiele.' : '',
         'Die beiden Verlierer der Halbfinale spielen das <b>Spiel um Platz 3</b>.',
@@ -242,11 +242,68 @@ export function regeln(main) {
       ])}
       ${sec('Preise', [
         '<b>Preisgeld für Platz 1 bis 3</b> und ein <b>Pokal</b> für den Sieger.',
-        'Das Preisgeld ergibt sich aus den Startgeldern abzüglich Getränke und Essen und wird am Turniertag bekanntgegeben.',
-        '🌭 Currywurst gibt es vor Ort zu kaufen.',
+        'Das Preisgeld ergibt sich aus den Startgeldern abzüglich Getränke und Currywurst und wird am Turniertag bekanntgegeben.',
+        '🌭 Currywurst und Getränke sind im Startgeld enthalten.',
       ])}
       <p class="muted small">Änderungen durch die Turnierleitung vorbehalten.</p></div>`;
   };
   draw(null);
   return watchTournament(d => draw(d && d.t ? d : null), () => {});
+}
+
+// ---------- Ehemalige Sieger (#sieger) ----------
+export function sieger(main) {
+  let alive = true, list = [], isAdmin = false, edit = null, msg = '';
+  const load = async () => {
+    const r = await sb.from('champions').select('*').order('year', { ascending: false });
+    list = r.data || [];
+    const { data: { session } } = await sb.auth.getSession();
+    isAdmin = session ? await rpc('am_admin', {}).catch(() => false) : false;
+  };
+  const form = c => `<form class="card sg-form" id="sgf"><h3>${c.id ? 'Eintrag ändern' : 'Neuen Sieger eintragen'}</h3>
+    <div class="sg-grid"><label>Jahr<input name="year" type="number" min="1990" max="2100" required value="${c.year || new Date().getFullYear()}"></label>
+      <label>Sieger<input name="name" required maxlength="60" value="${esc(c.name || '')}"></label>
+      <label>2. Platz<input name="second" maxlength="60" value="${esc(c.second || '')}"></label>
+      <label>3. Platz<input name="third" maxlength="60" value="${esc(c.third || '')}"></label>
+      <label>Silver Cup<input name="silver" maxlength="60" value="${esc(c.silver || '')}"></label>
+      <label class="wide">Notiz<input name="note" maxlength="200" placeholder="z. B. Finale 5:3, Highfinish 170" value="${esc(c.note || '')}"></label></div>
+    <div class="bbtns"><button class="btn pri" type="submit">Speichern</button><button class="btn" type="button" data-k="cancel">Abbrechen</button>
+      ${c.id ? '<button class="btn warn" type="button" data-k="del">Löschen</button>' : ''}</div></form>`;
+  const draw = () => {
+    if (!alive) return;
+    main.innerHTML = `<div class="wrap sg"><h1 class="tt">Ehemalige Sieger</h1>
+      <p class="muted">Neujahrsdart-Turnier Vynen · Hall of Fame</p>
+      ${msg ? `<p class="note" role="status">${esc(msg)}</p>` : ''}
+      ${isAdmin && !edit ? '<button class="btn sm" data-k="new">+ Sieger eintragen</button>' : ''}
+      ${edit ? form(edit) : ''}
+      <ol class="sg-list">${list.map((c, i) => `<li class="sg-c ${i === 0 ? 'first' : ''}">
+        <div class="sg-y">${c.year}</div>
+        <div class="sg-n"><span class="sg-cup" aria-hidden="true">🏆</span><b>${esc(c.name)}</b>
+          ${c.second || c.third || c.silver ? `<div class="sg-more">${c.second ? `<span>2. ${esc(c.second)}</span>` : ''}${c.third ? `<span>3. ${esc(c.third)}</span>` : ''}${c.silver ? `<span class="sv">Silver Cup: ${esc(c.silver)}</span>` : ''}</div>` : ''}
+          ${c.note ? `<p class="muted small">${esc(c.note)}</p>` : ''}</div>
+        ${isAdmin ? `<button class="btn sm ghost" data-ed="${c.id}">Ändern</button>` : ''}</li>`).join('') || '<li class="muted">Noch keine Einträge.</li>'}</ol>
+      <p class="muted small">Wer gewinnt 2027 und kommt hier dazu? 🎯</p></div>`;
+    const f = main.querySelector('#sgf');
+    if (f) f.onsubmit = async e => {
+      e.preventDefault();
+      try {
+        await rpc('admin_champion_save', { p_id: edit.id || null, p_year: Number(f.year.value), p_name: f.name.value, p_second: f.second.value, p_third: f.third.value, p_silver: f.silver.value, p_note: f.note.value });
+        edit = null; msg = 'Gespeichert.'; await load();
+      } catch (err) { msg = 'Speichern fehlgeschlagen.'; }
+      draw();
+    };
+  };
+  main.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.k === 'new') { edit = {}; msg = ''; draw(); }
+    if (b.dataset.ed) { edit = list.find(c => c.id === b.dataset.ed) || null; msg = ''; draw(); }
+    if (b.dataset.k === 'cancel') { edit = null; draw(); }
+    if (b.dataset.k === 'del') {
+      if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Wirklich löschen?'; return; }
+      await rpc('admin_champion_delete', { p_id: edit.id }).catch(() => {}); edit = null; msg = 'Eintrag gelöscht.'; await load(); draw();
+    }
+  };
+  main.innerHTML = '<p class="muted pd">Lade …</p>';
+  load().then(draw).catch(() => { main.innerHTML = '<p class="pd">Keine Verbindung.</p>'; });
+  return () => { alive = false; main.onclick = null; };
 }

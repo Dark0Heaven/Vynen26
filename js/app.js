@@ -4,7 +4,7 @@ import { startScorer } from './scorer.js';
 import { startAdmin } from './admin.js';
 import { live, baum, tabelle, halle } from './views.js';
 import { watchTheme } from './theme.js';
-import { anmelden, spieler, druck, regeln } from './extra.js';
+import { anmelden, spieler, druck, regeln, sieger } from './extra.js';
 import { spielen } from './cricket.js';
 
 const main = document.getElementById('main');
@@ -19,7 +19,9 @@ function route() {
   if (tm) { store.set('vynen-board', Number(tm[1])); store.set('vynen-tablet', true); store.del('vynen-pin'); location.replace('#schiri'); return; }
   if (!h && store.get('vynen-tablet', false)) { location.replace('#schiri'); return; }
   h = h || 'live';
-  for (const a of nav.querySelectorAll('a')) a.setAttribute('aria-current', a.dataset.r === h ? 'page' : 'false');
+  for (const a of document.querySelectorAll('header [data-r]')) a.setAttribute('aria-current', a.dataset.r === h ? 'page' : 'false');
+  const inMore = !!document.querySelector(`#moreMenu [data-r="${h.split('/')[0]}"]`);
+  const mb = document.getElementById('moreBtn'); if (mb) { mb.classList.toggle('cur', inMore); closeMore(); }
   document.body.classList.toggle('scoring', h === 'schiri');
   if (h === 'schiri') return schiri();
   if (h === 'admin') return admin();
@@ -27,6 +29,7 @@ function route() {
   if (h === 'anmelden') { cleanup = anmelden(main); return; }
   if (h === 'spielen') { cleanup = spielen(main); return; }
   if (h === 'regeln') { cleanup = regeln(main); return; }
+  if (h === 'sieger') { cleanup = sieger(main); return; }
   if (h === 'druck') { cleanup = druck(main); return; }
   if (h.startsWith('spieler/')) { cleanup = spieler(main, h.slice(8)); return; }
   const view = { baum, tabelle, halle }[h] || live;
@@ -195,5 +198,13 @@ async function openScorer(pin, board, fromSaved) {
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+// „Mehr“-Menü in der Kopfzeile
+function closeMore() { const m = document.getElementById('moreMenu'), b = document.getElementById('moreBtn'); if (m) m.hidden = true; if (b) b.setAttribute('aria-expanded', 'false'); }
+document.getElementById('moreBtn').addEventListener('click', e => {
+  e.stopPropagation(); const m = document.getElementById('moreMenu'); m.hidden = !m.hidden;
+  e.currentTarget.setAttribute('aria-expanded', String(!m.hidden));
+});
+document.addEventListener('click', e => { if (!e.target.closest('#more')) closeMore(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMore(); });
 watchTheme();
 route();
