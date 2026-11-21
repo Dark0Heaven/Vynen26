@@ -26,19 +26,28 @@ export const DEFS = {
     name: 'X01 (301 / 501 / 701 / 1001)', group: 'X01', min: 1,
     opts: [opt('start', 'Start', [[301, '301'], [501, '501'], [701, '701'], [1001, '1001']], 501),
       opt('in', 'In', [['s', 'Single In'], ['d', 'Double In']], 's'),
-      opt('out', 'Out', [['d', 'Double Out'], ['m', 'Master Out'], ['s', 'Single Out']], 'd')],
+      opt('out', 'Out', [['d', 'Double Out'], ['m', 'Master Out'], ['s', 'Single Out']], 'd'),
+      opt('legs', 'Legs', [[1, '1 Leg'], [3, 'Best of 3'], [5, 'Best of 5'], [7, 'Best of 7']], 1)],
+    init(S) { S.legNo = 0; S.need = Math.ceil(Number(S.o.legs || 1) / 2); },
     rules: o => `Von ${o.start} auf genau 0 runter${o.in === 'd' ? ', Start mit einem Double' : ''}${o.out === 'd' ? ', letzter Dart ein Double' : o.out === 'm' ? ', letzter Dart Double oder Triple' : ''}. Überworfen: Aufnahme zählt nicht.`,
-    player: o => ({ rem: Number(o.start), open: o.in === 's', scored: 0 }),
+    player: o => ({ rem: Number(o.start), open: o.in === 's', scored: 0, legs: 0 }),
     visitStart: (S, p) => { p.snap = { rem: p.rem, open: p.open, scored: p.scored }; },
     dart(S, p, d) {
       if (!p.open) { if (isDbl(d)) p.open = true; else return; }
       const r = subtract(p, d, S.o.out);
       if (r === 'bust') { Object.assign(p, p.snap); p.busts = (p.busts || 0) + 1; S.end = true; S.note = 'Überworfen!'; }
-      if (r === 'win') S.winner = p.i;
+      if (r === 'win') {
+        p.legs++; S.legNo++;
+        if (p.legs >= S.need) { S.winner = p.i; return; }
+        // Neues Leg: alle zurück auf Start, Anwurf wechselt reihum
+        for (const x of S.P) { x.rem = Number(S.o.start); x.open = S.o.in === 's'; }
+        S.forceNext = S.legNo % S.P.length; S.end = true; S.note = `${p.name} gewinnt Leg ${S.legNo}`;
+      }
     },
-    info(S) { const p = S.P[S.cur]; if (!p.open) return 'Zuerst ein Double treffen'; const c = p.rem <= 170 && S.o.out !== 's' ? checkout(p.rem, S.o.out === 'm' ? 'master' : 'double', 3 - S.k) : null; return c ? `Checkout: ${c.join(' · ')}` : `Rest ${p.rem}`; },
-    cols: ['Rest', 'Ø', 'Darts'], row: p => [`<b class="big">${p.rem}</b>`, avg(p), p.darts],
-    rank: S => [...S.P].sort((a, b) => a.rem - b.rem).map(p => ({ ...p, sub: `Rest ${p.rem} · Ø ${avg(p)} · ${p.darts} Darts` })),
+    info(S) { const p = S.P[S.cur]; if (!p.open) return 'Zuerst ein Double treffen'; const c = p.rem <= 170 && S.o.out !== 's' ? checkout(p.rem, S.o.out === 'm' ? 'master' : 'double', 3 - S.k) : null; const lg = S.need > 1 ? `Leg ${S.legNo + 1} · ` : ''; return lg + (c ? `Checkout: ${c.join(' · ')}` : `Rest ${p.rem}`); },
+    cols: S => S.need > 1 ? ['Legs', 'Rest', 'Ø', 'Darts'] : ['Rest', 'Ø', 'Darts'],
+    row: (p, S) => [...(S.need > 1 ? [`<b class="big gold">${p.legs}</b>`] : []), `<b class="big">${p.rem}</b>`, avg(p), p.darts],
+    rank: S => [...S.P].sort((a, b) => b.legs - a.legs || a.rem - b.rem).map(p => ({ ...p, sub: `${S.need > 1 ? p.legs + ' Legs · ' : ''}Rest ${p.rem} · Ø ${avg(p)} · ${p.darts} Darts` })),
   },
 
   // ---------------- Party ----------------
@@ -275,6 +284,7 @@ export function run(game) {
     const alive = S.P.filter(x => !x.out);
     if (!alive.length) { S.round = 1e9; if (def.roundEnd) def.roundEnd(S); S.over = true; return; }
     let n = S.cur; do n = (n + 1) % S.P.length; while (S.P[n].out && n !== S.cur);
+    if (S.forceNext !== undefined) { n = S.forceNext; delete S.forceNext; S.cur = n; if (def.visitStart) def.visitStart(S, S.P[n]); return; }
     if (n <= S.cur) { S.round++; if (def.roundEnd) def.roundEnd(S); if (S.over || S.winner !== null) { S.over = true; return; } }
     S.cur = n;
     if (def.visitStart) def.visitStart(S, S.P[n]);

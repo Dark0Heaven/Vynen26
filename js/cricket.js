@@ -186,12 +186,13 @@ export function spielen(main) {
     if (S.over) return finishGeneric(S);
     const p = S.P[S.cur];
     const rows = S.P.map(x => `<tr class="${x.i === S.cur ? 'on' : ''} ${x.out ? 'gone' : ''}"><th scope="row"><span class="pn">${esc(x.name)}</span></th>${def.row(x, S).map(c => `<td>${c}</td>`).join('')}</tr>`).join('');
+    const cols = typeof def.cols === 'function' ? def.cols(S) : def.cols;
     main.innerHTML = `<div class="wrap play-g">
       <div class="play-top"><div><span class="muted small">${esc(def.name)}</span>
         <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
         <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => `<span class="${S.visit[k] ? 'f' : ''}">${S.visit[k] ? dartTxt(S.visit[k]) : ''}</span>`).join('')}</div></div>
       <p class="play-info">${esc(def.info ? def.info(S) : '')}${S.note ? ` <span class="play-note" role="status">${esc(S.note)}</span>` : ''}</p>
-      <div class="tbl-scroll play-board"><table class="tbl ck gen"><thead><tr><th>Spieler</th>${def.cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="tbl-scroll play-board"><table class="tbl ck gen"><thead><tr><th>Spieler</th>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
       ${pad(def.highlight ? def.highlight(S) : [], S)}</div>`;
     if (cam && cam.active) cam.sync();
   }
