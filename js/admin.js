@@ -34,18 +34,56 @@ const ERR = {
 const errText = e => ERR[(e && (e.message || '').trim())] || (e && e.message) || 'Unbekannter Fehler.';
 
 export async function startAdmin(main) {
-  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null, bpins = [], costs = null, costTimer = null;
+  let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null, bpins = [], costs = null, costTimer = null, log = [], seenAt = null, prevSeen = null, logOpen = false, me = null;
 
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return loginView();
   const isAdmin = await rpc('am_admin', {}).catch(() => false);
   if (!isAdmin) return claimView();
+  me = session.user.id;
   await loadAll();
   draw();
   ch = sb.channel('admin')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => soon())
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audit_log' }, ev => {
+      const e = ev.new; if (!e || log.some(x => x.id === e.id)) return;
+      log.unshift(e); log = log.slice(0, 150);
+      if (e.user_id !== me) toast(e);
+      updateLog();
+    })
     .subscribe();
   return () => { alive = false; clearTimeout(timer); if (ch) sb.removeChannel(ch); };
+
+  // ---------- Benachrichtigungen (Änderungsprotokoll) ----------
+  function unread() { return log.filter(e => e.user_id !== me && (!seenAt || e.at > seenAt)).length; }
+  function bellHtml() { const n = unread(); return `🔔 Änderungen${n ? ` <span class="cnt">${n > 99 ? '99+' : n}</span>` : ''}`; }
+  function when(at) {
+    const d = new Date(at), diff = (Date.now() - d) / 60000;
+    if (diff < 1) return 'gerade eben';
+    if (diff < 60) return `vor ${Math.round(diff)} Min`;
+    const today = d.toDateString() === new Date().toDateString();
+    return (today ? '' : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' ') + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+  function whoTxt(e) { return e.user_id === me ? 'Du' : esc(e.who || 'unbekannt'); }
+  function logHtml() {
+    const items = log.slice(0, 100);
+    return `<section class="card logp"><div class="logp-h"><h2 class="sec">Änderungen</h2><span class="muted small">Neue Änderungen anderer sind markiert</span></div>
+      <ol class="logl">${items.map(e => `<li class="${e.user_id !== me && (!prevSeen || e.at > prevSeen) ? 'new' : ''} ${e.user_id === me ? 'mine' : ''}">
+        <span class="lw">${when(e.at)}</span><span class="la"><b>${whoTxt(e)}</b> · ${esc(e.action)}</span></li>`).join('') || '<li class="muted">Noch keine Änderungen.</li>'}</ol></section>`;
+  }
+  function updateLog() {
+    const b = main.querySelector('#bell'); if (b) { b.innerHTML = bellHtml(); b.classList.toggle('on', logOpen); b.setAttribute('aria-expanded', logOpen); }
+    const box = main.querySelector('#logbox'); if (box) box.innerHTML = logOpen ? logHtml() : '';
+  }
+  function toast(e) {
+    let host = document.querySelector('.ntoasts');
+    if (!host) { host = document.createElement('div'); host.className = 'ntoasts'; host.setAttribute('role', 'status'); document.body.appendChild(host); }
+    const t = document.createElement('div'); t.className = 'ntoast';
+    t.innerHTML = `<b>${esc(e.who || 'Jemand')}</b><span>${esc(e.action)}</span>`;
+    t.onclick = () => { logOpen = true; prevSeen = seenAt; seenAt = new Date().toISOString(); rpc('admin_seen', {}).catch(() => {}); updateLog(); t.remove(); };
+    host.appendChild(t);
+    setTimeout(() => t.classList.add('out'), 6000); setTimeout(() => t.remove(), 6600);
+  }
 
   // ---------- Login ----------
   function loginView(note = '') {
@@ -101,8 +139,11 @@ export async function startAdmin(main) {
       sb.from('reg_settings').select('*').eq('id', 1).single(),
     ]);
     regs = r.data || []; regInfo = s.data || { open: true, deadline: null, fee: 10 };
-    const c = await sb.from('admin_prefs').select('costs').maybeSingle(); // nur die eigene Zeile (RLS)
+    const c = await sb.from('admin_prefs').select('costs, seen_at').maybeSingle(); // nur die eigene Zeile (RLS)
     costs = c.data ? c.data.costs : null;
+    seenAt = c.data ? c.data.seen_at : null;
+    const l = await sb.from('audit_log').select('*').order('id', { ascending: false }).limit(150);
+    log = l.data || [];
   }
   async function loadAll() {
     await loadRegs().catch(() => {});
@@ -130,10 +171,16 @@ export async function startAdmin(main) {
       <button class="${tab === 'fix' ? 'on' : ''}" data-tab="fix" ${data ? '' : 'disabled'}>Korrekturen</button>
       <button class="${tab === 'reg' ? 'on' : ''}" data-tab="reg">Anmeldungen <span class="cnt">${regs.length}</span></button>
       <button class="${tab === 'new' ? 'on' : ''}" data-tab="new">Neues Turnier</button></div>`;
-    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><button class="btn sm theme-btn" id="th" ${data ? '' : 'disabled'}>${currentTheme() === 'bigfish' ? 'Design: Vynen' : 'Design: Big Fish VyMa'}</button><a class="btn sm" href="#halle">Hallen-Anzeige</a>${data ? '<a class="btn sm" href="#druck">Notfall-Paket</a>' : ''}<button class="btn sm" id="lo">Abmelden</button></div></div>
+    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><button class="btn sm theme-btn" id="th" ${data ? '' : 'disabled'}>${currentTheme() === 'bigfish' ? 'Design: Vynen' : 'Design: Big Fish VyMa'}</button><button class="btn sm bell ${logOpen ? 'on' : ''}" id="bell" aria-expanded="${logOpen}">${bellHtml()}</button><a class="btn sm" href="#halle">Hallen-Anzeige</a>${data ? '<a class="btn sm" href="#druck">Notfall-Paket</a>' : ''}<button class="btn sm" id="lo">Abmelden</button></div></div>
+      <div id="logbox">${logOpen ? logHtml() : ''}</div>
       ${tabs}${data && data.t.is_test ? `<div class="note testbar"><span><b>Testturnier</b> · Generalprobe. Wenn ihr fertig seid, hier löschen. Danach ist wieder das echte Turnier aktiv.</span>
         <button class="btn sm warn" id="deltest">Testturnier löschen</button></div>` : ''}${msg ? `<p class="note" role="alert">${esc(msg)}</p>` : ''}<div id="body"></div></div>`;
     main.querySelector('#lo').onclick = async () => { await sb.auth.signOut(); reload(); };
+    main.querySelector('#bell').onclick = async () => {
+      logOpen = !logOpen;
+      if (logOpen) { prevSeen = seenAt; seenAt = new Date().toISOString(); rpc('admin_seen', {}).catch(() => {}); }
+      updateLog();
+    };
     main.querySelector('#th').onclick = async () => {
       const next = currentTheme() === 'bigfish' ? 'vynen' : 'bigfish';
       try { await rpc('admin_set_theme', { p_tournament: data.t.id, p_theme: next }); setTheme(next);
@@ -269,7 +316,7 @@ export async function startAdmin(main) {
     });
     return h;
   }
-  const leagueDirty = () => [...main.querySelectorAll('.lg-row input')].some(i => i.value.trim() !== i.dataset.orig);
+  function leagueDirty() { return [...main.querySelectorAll('.lg-row input')].some(i => i.value.trim() !== i.dataset.orig); }
 
   // ---------- Schweizer System ----------
   function swissPanel() {
