@@ -12,7 +12,7 @@ Turnier-App für das Neujahrsdart-Turnier „Vynen 26“: Live-Spielstand für a
 - Installierbar aufs Handy (PWA): im Browser „Zum Startbildschirm hinzufügen“.
 
 ## Turniermodi
-- **KO-Baum** (Standard): Setzliste, Freilose, Spiel um Platz 3.
+- **KO-Baum** (Standard): Setzliste, Freilose, Spiel um Platz 3, optional **Silver Cup** (Verlierer der 1. Runde in eigenem Baum, eigene Formate pro Runde).
 - **Schweizer System**: feste Rundenzahl, Auslosung punktgleicher Spieler ohne Wiederholung, Freilos (1 Punkt, höchstens einmal), Nachmeldung jederzeit (Start mit 0 oder den Punkten des Letzten), Wertung Punkte → Buchholz → Leg-Differenz → Average, Ende als Tabellensieg oder KO-Finale Top 4/Top 8.
 
 - **Liga** (Mannschaftsduell): 2 Teams, 6 Einzel · 3 Doppel · 6 Einzel, alle 15 Spiele, jedes Spiel 1 Punkt. Spieler pro Spiel in der Leitung eintragen; Live, Spielbericht und Halle zeigen den Mannschaftsstand. Statistik nur aus Einzeln.

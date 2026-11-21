@@ -6,7 +6,8 @@ const BOGEY_DOUBLE = [169, 168, 166, 165, 163, 162, 159];
 
 export function roundCfg(t, m) {
   const rounds = Array.isArray(t?.rounds) ? t.rounds : [];
-  let c = m.kind === 'sw' ? (t.swiss && t.swiss.cfg) : m.kind === 'p3' ? (t.p3_cfg || rounds[rounds.length - 1]) : rounds[m.round];
+  let c = m.kind === 'sw' ? (t.swiss && t.swiss.cfg) : m.kind === 'p3' ? (t.p3_cfg || rounds[rounds.length - 1])
+    : m.kind === 'sc' ? (t.silver && t.silver.rounds && t.silver.rounds[m.round]) : rounds[m.round];
   c = c || {};
   return { bo: c.bo || 3, start: c.start || 501, out: c.out || 'double', din: !!c.din };
 }
@@ -18,9 +19,10 @@ export function roundName(t, m) {
     const b = t.league && t.league.blocks && t.league.blocks[m.round];
     return `Spiel ${m.idx + 1} · ${b && b.t === 'd' ? 'Doppel' : 'Einzel'}`;
   }
-  const R = Math.round(Math.log2(t.size));
+  const R = Math.round(Math.log2(m.kind === 'sc' ? t.size / 2 : t.size));
   const k = R - 1 - m.round;
-  return ['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale'][k] || `Runde ${m.round + 1}`;
+  const n = ['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale', '16tel-Finale'][k] || `Runde ${m.round + 1}`;
+  return m.kind === 'sc' ? `Silver Cup · ${n}` : n;
 }
 
 export const OUT_LABEL = { double: 'Double Out', master: 'Master Out', straight: 'Straight Out' };

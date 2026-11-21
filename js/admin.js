@@ -465,7 +465,7 @@ export async function startAdmin(main) {
   }
 
   function newForm(body) {
-    const rn = (R, r) => ['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale'][R - 1 - r] || `Runde ${r + 1}`;
+    const rn = (R, r) => ['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale', '16tel-Finale'][R - 1 - r] || `Runde ${r + 1}`;
     const cfgRow = (key, label, d) => `<tr><th>${label}</th>
       <td><select data-c="${key}.bo" aria-label="${label} Best of">${[1, 3, 5, 7, 9, 11].map(n => `<option ${n === d.bo ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
       <td><select data-c="${key}.start" aria-label="${label} Startpunkte">${[301, 501, 701].map(n => `<option ${n === d.start ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
@@ -501,6 +501,7 @@ export async function startAdmin(main) {
       <textarea id="tp" rows="10" placeholder="Max&#10;Anna&#10;Tim"></textarea><div id="unpaid"></div>
       <label class="chk"><input type="checkbox" id="tt"> Testturnier (Generalprobe – lässt sich danach mit einem Klick löschen)</label>
       <label class="chk" id="t3l"><input type="checkbox" id="t3" checked> Spiel um Platz 3</label>
+      <label class="chk" id="scl"><input type="checkbox" id="sc"> Silver Cup (die Verlierer der 1. Runde spielen einen eigenen Baum)</label>
       <div id="rc"></div>
       <button class="btn pri" type="submit">Turnier erstellen</button></form>`;
     const f = body.querySelector('#nf');
@@ -520,6 +521,7 @@ export async function startAdmin(main) {
     f.swe.onchange = () => drawCfg();
     const drawCfg = () => {
       const n = names().length;
+      body.querySelector('#scl').hidden = mode !== 'ko';
       if (mode === 'swiss') return drawSwissCfg(n);
       if (mode === 'league') {
         body.querySelector('#t3l').hidden = true;
@@ -535,12 +537,17 @@ export async function startAdmin(main) {
       if (n < 2) { lastKey = ''; rc.innerHTML = '<p class="muted small">Sobald mindestens zwei Spieler eingetragen sind, erscheinen hier die Einstellungen pro Runde.</p>'; return; }
       let sz = 2; while (sz < n) sz *= 2; const R = Math.log2(sz);
       const info = `${n} Spieler · ${R} Runden${sz > n ? ` · ${sz - n} Freilos${sz - n > 1 ? 'e' : ''} in Runde 1` : ''}`;
-      const key = R + '|' + f.t3.checked;
+      const silver = f.sc.checked && sz >= 8;
+      body.querySelector('#scl').hidden = sz < 8;
+      const key = R + '|' + f.t3.checked + '|' + silver;
       if (key === lastKey) { rc.querySelector('.info').textContent = info; return; } // Einstellungen nicht zurücksetzen
       lastKey = key;
       let rows = '';
-      for (let r = 0; r < R; r++) rows += cfgRow('r' + r, rn(R, r), { bo: r === R - 1 ? 5 : 3, start: 501, out: 'double' });
-      if (f.t3.checked && R >= 2) rows += cfgRow('p3', 'Platz 3', { bo: 3, start: 501, out: 'double' });
+      // Vorgabe nach eurem Turnierplan: Finale Bo9, Halbfinale Bo7, Viertelfinale Bo5, davor Bo3, Platz 3 Bo7
+      const boOf = r => [9, 7, 5][R - 1 - r] || 3;
+      for (let r = 0; r < R; r++) rows += cfgRow('r' + r, rn(R, r), { bo: boOf(r), start: 501, out: 'double' });
+      if (f.t3.checked && R >= 2) rows += cfgRow('p3', 'Platz 3', { bo: 7, start: 501, out: 'double' });
+      if (silver) for (let r = 0; r < R - 1; r++) rows += cfgRow('s' + r, 'Silver Cup · ' + rn(R - 1, r), { bo: r >= R - 3 ? 5 : 3, start: 501, out: 'double' });
       rc.innerHTML = `<p class="muted small info">${info}</p>
         <div class="tblwrap"><table class="cfg"><thead><tr><th>Runde</th><th>Best of</th><th>Start</th><th>Out</th><th>Double In</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     };
@@ -568,7 +575,7 @@ export async function startAdmin(main) {
     };
     const fill = list => { f.tp.value = list.join('\n'); drawCfg(); unpaid(); };
     const fr = body.querySelector('#fromreg'); if (fr) fr.onclick = () => fill(regs.map(r => r.name));
-    f.tp.oninput = () => { drawCfg(); unpaid(); }; f.t3.onchange = drawCfg; f.tb.onchange = unpaid; drawCfg();
+    f.tp.oninput = () => { drawCfg(); unpaid(); }; f.t3.onchange = drawCfg; f.sc.onchange = drawCfg; f.tb.onchange = unpaid; drawCfg();
     if (takeOver) { fill(takeOver); takeOver = null; }
     f.onsubmit = async e => {
       e.preventDefault();
@@ -617,7 +624,10 @@ export async function startAdmin(main) {
       try {
         await rpc('admin_create_tournament', { p_name: f.tn.value.trim(), p_date: f.td.value || null, p_boards: Number(f.tb.value),
           p_third: f.t3.checked, p_rounds: rounds, p_p3: f.t3.checked && R >= 2 ? get('p3') : null, p_players: list })
-          .then(id => f.tt.checked ? rpc('admin_set_test', { p_tournament: id, p_test: true }) : null);
+          .then(async id => {
+            if (f.sc.checked && sz >= 8) { const sr = []; for (let r = 0; r < R - 1; r++) sr.push(get('s' + r)); await rpc('admin_enable_silver', { p_tournament: id, p_rounds: sr }); }
+            if (f.tt.checked) await rpc('admin_set_test', { p_tournament: id, p_test: true });
+          });
         msg = 'Turnier erstellt.'; tab = 'boards'; await loadAll(); draw();
       } catch (err) { msg = errText(err); draw(); }
     };

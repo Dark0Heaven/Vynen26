@@ -124,8 +124,9 @@ export function druck(main) {
   const stop = watchTournament(d => {
     last = d;
     if (!d) { main.innerHTML = '<p class="pd">Noch kein Turnier.</p>'; return; }
+    const ord = { sw: 0, lg: 0, ko: 1, p3: 1, sc: 2 };
     const ms = [...d.matches].filter(m => m.status !== 'pending' || m.player_a || m.player_b)
-      .sort((a, b) => (a.kind === 'sw' ? 0 : 1) - (b.kind === 'sw' ? 0 : 1) || a.round - b.round || (a.kind > b.kind ? 1 : -1) || a.idx - b.idx);
+      .sort((a, b) => (ord[a.kind] - ord[b.kind]) || a.round - b.round || (a.kind > b.kind ? 1 : -1) || a.idx - b.idx);
     const line = m => {
       const fin = ['done', 'wo', 'bye'].includes(m.status);
       const res = m.status === 'done' ? `${m.legs_a} : ${m.legs_b}` : m.status === 'wo' ? 'w. o.' : m.status === 'bye' ? 'Freilos' : '___ : ___';
@@ -140,6 +141,7 @@ export function druck(main) {
       <p class="note no-print">Nach der Auslosung einmal drucken und zur Turnierleitung legen. Fällt das Internet länger aus, auf Papier weiterspielen und die Ergebnisse danach unter „Korrekturen“ nachtragen.</p>
       <h1 class="tt">${esc(d.t.name)}</h1><p class="muted">Stand ${now} · ${d.players.length} Spieler</p>
       ${ko ? `<section class="prt-page"><h2 class="sec">${d.t.mode === 'swiss' ? 'KO-Finale' : 'Turnierbaum'}</h2><div class="prt-bk">${bracketHtml(d)}</div></section>` : ''}
+      ${d.matches.some(m => m.kind === 'sc') ? `<section class="prt-page"><h2 class="sec">Silver Cup</h2><div class="prt-bk">${bracketHtml(d, 'sc')}</div></section>` : ''}
       ${d.swiss ? `<section class="prt-page"><h2 class="sec">Tabelle Schweizer System · Runde ${d.swiss.rounds} von ${d.t.swiss.rounds}</h2>
         <table class="prt-t"><thead><tr><th>#</th><th>Spieler</th><th>Pkt</th><th>BHZ</th><th>Legs</th></tr></thead><tbody>
         ${d.swiss.list.map(p => `<tr><td>${p.rank}</td><td>${esc(p.name)}</td><td class="c">${p.pts}</td><td class="c">${p.buch}</td><td class="c">${p.lf}:${p.la}</td></tr>`).join('')}</tbody></table></section>` : ''}
@@ -147,8 +149,7 @@ export function druck(main) {
         <tbody>${ms.map(line).join('')}</tbody></table></section>
       <section class="prt-page"><h2 class="sec">Spieler</h2><ol class="prt-pl">${d.players.map(p => `<li>${esc(p.name)}${p.withdrawn ? ' (zg.)' : ''}</li>`).join('')}</ol></section></div>`;
     requestAnimationFrame(() => {
-      const box = main.querySelector('.prt-bk'), bk = box && box.querySelector('.bk');
-      if (bk) { const s = Math.min(1, 1000 / bk.offsetWidth); bk.style.zoom = s; }
+      for (const bk of main.querySelectorAll('.prt-bk .bk')) { const s = Math.min(1, 1000 / bk.offsetWidth); bk.style.zoom = s; }
     });
   }, () => { if (!last) main.innerHTML = '<p class="pd">Keine Verbindung.</p>'; });
   const onClick = e => {

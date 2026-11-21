@@ -72,7 +72,7 @@ function enrich(d) {
 }
 
 function playerStats(d) {
-  const { players, matches, R } = d;
+  const { players, matches, R, t } = d;
   const S = {};
   for (const p of players) S[p.id] = { id: p.id, name: p.name, seed: p.seed, withdrawn: p.withdrawn, sp: 0, s: 0, n: 0, lf: 0, la: 0,
     pts: 0, darts: 0, t180: 0, sc: { 80: 0, 100: 0, 120: 0, 140: 0, 160: 0, 180: 0 }, hf: 0, hfs: [], best: 0, bestAvg: 0, out: null, place: null, reach: 0 };
@@ -115,6 +115,13 @@ function playerStats(d) {
   const done = m => m && ['done', 'wo', 'bye'].includes(m.status) && m.winner;
   if (done(fin)) { S[fin.winner].place = 1; const l = fin.winner === fin.player_a ? fin.player_b : fin.player_a; if (S[l]) S[l].place = 2; }
   if (done(p3)) { S[p3.winner].place = 3; const l = p3.winner === p3.player_a ? p3.player_b : p3.player_a; if (S[l]) S[l].place = 4; }
+  // Silver Cup: wer drin ist, wer raus ist, Sieger
+  for (const m of matches.filter(x => x.kind === 'sc')) {
+    for (const id of [m.player_a, m.player_b]) if (S[id]) S[id].silver = S[id].silver || 'in';
+    if (['done', 'wo'].includes(m.status) && m.winner) { const l = m.winner === m.player_a ? m.player_b : m.player_a; if (S[l]) S[l].silver = 'out'; }
+  }
+  const sR = Math.round(Math.log2(t.size / 2)), sFin = matches.find(m => m.kind === 'sc' && m.round === sR - 1);
+  if (done(sFin) && S[sFin.winner]) S[sFin.winner].silver = 'win';
   const list = Object.values(S);
   for (const p of list) p.avg = p.darts ? p.pts / p.darts * 3 : 0;
   list.sort((a, b) => (a.place || 99) - (b.place || 99)

@@ -41,10 +41,12 @@ function recent(d, n) {
     `<li><span>${esc(d.pname(m.player_a))} <b>${m.legs_a}:${m.legs_b}</b> ${esc(d.pname(m.player_b))}</span><span class="muted">${esc(roundName(d.t, m))}</span></li>`).join('')}</ol>`;
 }
 
+const npanel = d => d.matches && d.matches.some(m => m.kind === 'sc') ? 3 : 2;
 function champ(d) {
   const top = d.stats.filter(p => p.place && p.place <= 3).sort((a, b) => a.place - b.place);
-  if (!top.length) return '';
-  return `<div class="podium">${top.map(p => `<div class="pod p${p.place}"><span>${p.place}.</span><b>${esc(p.name)}</b></div>`).join('')}</div>`;
+  const sw = d.stats.find(p => p.silver === 'win');
+  if (!top.length && !sw) return '';
+  return `<div class="podium">${top.map(p => `<div class="pod p${p.place}"><span>${p.place}.</span><b>${esc(p.name)}</b></div>`).join('')}${sw ? `<div class="pod psc"><span>Silver Cup</span><b>${esc(sw.name)}</b></div>` : ''}</div>`;
 }
 
 // ---------- Liga (Mannschaftsduell) ----------
@@ -88,8 +90,9 @@ export function live(main) {
 }
 
 // ---------- Turnierbaum (mit Verbindungslinien) ----------
-export function bracketHtml(d) {
-  const { t, R } = d;
+export function bracketHtml(d, kind = 'ko') {
+  const { t } = d;
+  const R = kind === 'sc' ? Math.round(Math.log2(t.size / 2)) : d.R, size = kind === 'sc' ? t.size / 2 : t.size;
   const W = 210, H = 76, X = 46, U = H + 14, TOP = 34;
   const cy = (r, i) => TOP + U * Math.pow(2, r) * (i + 0.5);
   const cx = r => r * (W + X);
@@ -110,10 +113,10 @@ export function bracketHtml(d) {
   };
   let cards = '', heads = '', lines = '';
   for (let r = 0; r < R; r++) {
-    const ms = d.matches.filter(m => m.kind === 'ko' && m.round === r);
+    const ms = d.matches.filter(m => m.kind === kind && m.round === r);
     if (!ms.length) continue;
     const c = ms[0].cfg;
-    heads += `<div class="bk-h" style="left:${cx(r)}px;width:${W}px">${esc(roundName(t, ms[0]))}<span>Bo${c.bo} · ${c.start}</span></div>`;
+    heads += `<div class="bk-h" style="left:${cx(r)}px;width:${W}px">${esc(roundName(t, ms[0]).replace('Silver Cup · ', ''))}<span>Bo${c.bo} · ${c.start}</span></div>`;
     for (const m of ms) {
       cards += card(m, cx(r), cy(r, m.idx) - H / 2);
       if (r < R - 1) {
@@ -123,8 +126,8 @@ export function bracketHtml(d) {
       }
     }
   }
-  let height = TOP + U * (t.size / 2);
-  const p3 = d.matches.find(m => m.kind === 'p3');
+  let height = TOP + U * (size / 2);
+  const p3 = kind === 'ko' && d.matches.find(m => m.kind === 'p3');
   if (p3) {
     const y = cy(R - 1, 0) + H / 2 + 56;
     heads += `<div class="bk-h" style="left:${cx(R - 1)}px;top:${y - 26}px;width:${W}px">Spiel um Platz 3</div>`;
@@ -139,7 +142,9 @@ export function baum(main) {
   return mount(main, d => d.league ? `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${leagueScore(d)}
     <h2 class="sec">Spielbericht</h2><div class="lg-report">${leagueReport(d)}</div></div>`
     : d.t.mode === 'swiss' ? swissBaum(d) : `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>${champ(d)}
-    <div class="bracket-scroll">${bracketHtml(d)}</div><p class="muted small">Auf dem Handy waagerecht wischen.</p></div>`);
+    <div class="bracket-scroll">${bracketHtml(d)}</div>
+    ${d.matches.some(m => m.kind === 'sc') ? `<h2 class="sec silver-h">Silver Cup <span class="muted small">Verlierer der 1. Runde</span></h2><div class="bracket-scroll">${bracketHtml(d, 'sc')}</div>` : ''}
+    <p class="muted small">Auf dem Handy waagerecht wischen.</p></div>`);
 }
 
 // ---------- Schweizer System ----------
@@ -197,7 +202,9 @@ export function tabelle(main) {
     const hfs = list.flatMap(p => p.hfs.map(v => ({ name: p.name, v }))).sort((a, b) => b.v - a.v);
     const by = (key, f, asc) => list.filter(p => p[key]).sort((a, b) => asc ? a[key] - b[key] : b[key] - a[key]).map(p => ({ name: p.name, v: f(p[key]) }));
     const status = p => d.league ? `<span class="st">${esc(d.league.teams[p.team - 1] || '')}</span>` : p.place ? `<span class="st ${p.place === 1 ? 'champ-st' : ''}">${p.place}. Platz</span>`
+      : p.silver === 'win' ? '<span class="st champ-st silver-st">Silver-Cup-Sieger</span>'
       : p.withdrawn ? '<span class="st">Zurückgezogen</span>'
+      : p.silver === 'in' ? '<span class="st in">Im Silver Cup</span>'
       : p.out !== null ? `<span class="st">Aus · ${esc(roundName(d.t, { kind: 'ko', round: p.out }))}</span>`
       : `<span class="st in">Im ${esc(roundName(d.t, { kind: 'ko', round: p.reach }))}</span>`;
     return `<div class="wrap"><h1 class="tt">${esc(d.t.name)}</h1>
@@ -250,8 +257,9 @@ export function halle(main) {
         : d.league ? `<h2 class="sec">Spielbericht</h2><div class="lg-report hall-lg">${leagueReport(d, true)}</div>`
         : d.t.mode === 'swiss' && !d.matches.some(m => m.kind === 'ko')
           ? `<h2 class="sec">Tabelle · Runde ${d.swiss.rounds} von ${d.t.swiss.rounds}</h2><div class="hall-tbl">${swissTable(d, 12)}</div>`
+          : panel === 2 ? `<h2 class="sec">Silver Cup</h2><div class="hall-bk">${bracketHtml(d, 'sc')}</div>`
           : `<h2 class="sec">${d.t.mode === 'swiss' ? 'KO-Finale' : 'Turnierbaum'}</h2><div class="hall-bk">${bracketHtml(d)}</div>`}</div>
-      <div class="hall-dots"><span class="${panel === 0 ? 'on' : ''}"></span><span class="${panel === 1 ? 'on' : ''}"></span></div></div>`;
+      <div class="hall-dots">${Array.from({ length: npanel(d) }, (_, k) => `<span class="${panel === k ? 'on' : ''}"></span>`).join('')}</div></div>`;
     fit();
   };
   const fit = () => requestAnimationFrame(() => {
@@ -262,7 +270,7 @@ export function halle(main) {
     box.style.height = bk.offsetHeight * Math.max(0.3, sc) + 'px';
   });
   const stop = watchTournament(d => { data = d; draw(); }, () => {});
-  const rot = setInterval(() => { panel = 1 - panel; draw(); }, 20000);
+  const rot = setInterval(() => { panel = (panel + 1) % (data ? npanel(data) : 2); draw(); }, 20000);
   const tick = setInterval(() => { const c = main.querySelector('.clock'); if (c) c.textContent = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); }, 15000);
   const onClick = e => { if (e.target.closest('[data-fs]')) { const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().catch(() => {}); } };
   main.addEventListener('click', onClick);
