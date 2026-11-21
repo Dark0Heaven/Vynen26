@@ -1,6 +1,7 @@
 // Freies Spiel: Cricket und Tactics für beliebig viele Spieler, nur auf diesem Gerät (kein Login, keine Datenbank)
 import { esc, store } from './db.js';
 import { createCamera } from './camera.js';
+import { DEFS, run, optionsOf } from './games.js';
 
 const GAMES = {
   cricket: { name: 'Cricket', targets: [20, 19, 18, 17, 16, 15, 25] },
@@ -9,6 +10,17 @@ const GAMES = {
 const VARIANTS = { std: 'Standard (Punkte)', cut: 'Cut-Throat', none: 'Ohne Punkte' };
 const KEY = 'vynen-play', KEY_SETUP = 'vynen-play-setup';
 const lbl = t => t === 25 ? 'Bull' : String(t);
+const ALL = [...Array.from({ length: 20 }, (_, i) => i + 1), 25];
+const isCk = type => type in GAMES;
+const gameName = type => isCk(type) ? GAMES[type].name : DEFS[type].name;
+const minPlayers = type => isCk(type) ? 2 : DEFS[type].min;
+// Spielauswahl als Pulldown, gruppiert
+function gameSelect(cur) {
+  const groups = { Cricket: Object.entries(GAMES).map(([k, g]) => [k, g.name + (k === 'cricket' ? ' (15–20, Bull)' : ' (10–20, Bull)')]) };
+  for (const [k, d] of Object.entries(DEFS)) (groups[d.group] = groups[d.group] || []).push([k, d.name]);
+  return `<select id="gt" aria-label="Spiel">${Object.entries(groups).map(([g, list]) => `<optgroup label="${g}">${list.map(([k, n]) =>
+    `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select>`;
+}
 
 // ---------- Spiellogik: Stand komplett aus der Wurfliste berechnen (macht Rückgängig trivial) ----------
 export function replay(game) {
@@ -69,28 +81,33 @@ export function spielen(main) {
 
   function setup() {
     const s = store.get(KEY_SETUP, { type: 'cricket', variant: 'std', players: [] });
+    if (!isCk(s.type) && !DEFS[s.type]) s.type = 'cricket';
+    s.opts = s.opts || {};
+    const opts = () => optionsOf(s.type, s.opts[s.type]);
     let players = [...s.players];
     const draw = () => {
       main.innerHTML = `<div class="wrap play-setup"><h1 class="tt">Spielen</h1>
-        <p class="muted">Cricket oder Tactics an einem Board. Läuft nur auf diesem Gerät, ohne Anmeldung.</p>
-        <div class="flabel">Spiel</div>
-        <div class="seg" role="radiogroup" aria-label="Spiel">${Object.entries(GAMES).map(([k, g]) =>
-          `<button type="button" data-type="${k}" class="${s.type === k ? 'on' : ''}" role="radio" aria-checked="${s.type === k}">${g.name}<small>${k === 'cricket' ? '15–20 · Bull' : '10–20 · Bull'}</small></button>`).join('')}</div>
-        <div class="flabel">Variante</div>
-        <div class="seg" role="radiogroup" aria-label="Variante">${Object.entries(VARIANTS).map(([k, v]) =>
-          `<button type="button" data-var="${k}" class="${s.variant === k ? 'on' : ''}" role="radio" aria-checked="${s.variant === k}">${v}</button>`).join('')}</div>
+        <p class="muted">Cricket, X01, Party- und Trainingsspiele an einem Board. Läuft nur auf diesem Gerät, ohne Anmeldung.</p>
+        <label class="flabel" for="gt">Spiel</label>${gameSelect(s.type)}
+        ${isCk(s.type) ? `<label class="flabel" for="gv">Variante</label><select id="gv">${Object.entries(VARIANTS).map(([k, v]) => `<option value="${k}" ${s.variant === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <p class="muted small">${s.variant === 'std' ? 'Treffer auf eigene offene Zahlen geben Punkte, solange ein Gegner sie noch nicht zu hat. Sieger: alles zu und mindestens gleich viele Punkte.'
           : s.variant === 'cut' ? 'Treffer auf eigene offene Zahlen schreiben jedem Gegner Punkte auf, der sie noch nicht zu hat. Sieger: alles zu und die wenigsten Punkte.'
-          : 'Es zählt nur das Schließen. Wer zuerst alle Zahlen zu hat, gewinnt.'}</p>
+          : 'Es zählt nur das Schließen. Wer zuerst alle Zahlen zu hat, gewinnt.'}</p>`
+        : `<div class="play-opts">${DEFS[s.type].opts.map(o => `<div><label class="flabel" for="go-${o.k}">${o.label}</label><select id="go-${o.k}" data-opt="${o.k}">${o.choices.map(([v, l]) =>
+            `<option value="${v}" ${String(opts()[o.k]) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('')}</div>
+          <p class="muted small">${DEFS[s.type].rules(opts())}</p>`}
         <div class="flabel">Spieler (${players.length})</div>
         <form id="pa" class="bbtns addrow"><input id="pn" maxlength="24" placeholder="Name" aria-label="Spielername" autocomplete="off">
           <button class="btn pri" type="submit">Hinzufügen</button></form>
         <ol class="list play-pl">${players.map((n, i) => `<li><span><span class="muted">${i + 1}.</span> ${esc(n)}</span>
           <span class="bbtns"><button class="btn sm" data-up="${i}" aria-label="${esc(n)} nach oben" ${i ? '' : 'disabled'}>↑</button>
-          <button class="btn sm" data-rm="${i}" aria-label="${esc(n)} entfernen">✕</button></span></li>`).join('') || '<li class="muted">Noch keine Spieler. Mindestens zwei eintragen.</li>'}</ol>
+          <button class="btn sm" data-rm="${i}" aria-label="${esc(n)} entfernen">✕</button></span></li>`).join('') || `<li class="muted">Noch keine Spieler. ${minPlayers(s.type) > 1 ? 'Mindestens zwei eintragen.' : 'Mindestens einen eintragen.'}</li>`}</ol>
         <div class="bbtns"><button class="btn" data-k="shuffle" ${players.length > 1 ? '' : 'disabled'}>Reihenfolge auslosen</button>
-          <button class="btn pri big" data-k="start" ${players.length > 1 ? '' : 'disabled'}>Spiel starten</button></div></div>`;
+          <button class="btn pri big" data-k="start" ${players.length >= minPlayers(s.type) ? '' : 'disabled'}>Spiel starten</button></div></div>`;
       const f = main.querySelector('#pa');
+      main.querySelector('#gt').onchange = e => { s.type = e.target.value; persist(); draw(); };
+      const gv = main.querySelector('#gv'); if (gv) gv.onchange = e => { s.variant = e.target.value; persist(); draw(); };
+      main.querySelectorAll('[data-opt]').forEach(el => el.onchange = () => { s.opts[s.type] = { ...opts(), [el.dataset.opt]: el.value }; persist(); draw(); });
       f.onsubmit = e => { e.preventDefault(); const n = f.pn.value.trim(); if (n) { players.push(n); persist(); draw(); main.querySelector('#pn').focus(); } };
     };
     const persist = () => { s.players = players; store.set(KEY_SETUP, s); };
@@ -101,13 +118,14 @@ export function spielen(main) {
       else if (b.dataset.rm !== undefined) { players.splice(Number(b.dataset.rm), 1); persist(); draw(); }
       else if (b.dataset.up !== undefined) { const i = Number(b.dataset.up); [players[i - 1], players[i]] = [players[i], players[i - 1]]; persist(); draw(); }
       else if (b.dataset.k === 'shuffle') { for (let i = players.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [players[i], players[j]] = [players[j], players[i]]; } persist(); draw(); }
-      else if (b.dataset.k === 'start') { game = { type: s.type, variant: s.variant, players: [...players], darts: [], started: Date.now() }; save(); mult = 1; play(); }
+      else if (b.dataset.k === 'start') { game = { type: s.type, variant: s.variant, opts: isCk(s.type) ? null : opts(), players: [...players], darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; play(); }
     };
     draw();
   }
 
   function play() {
     main.onclick = onPlay;
+    if (!isCk(game.type)) return playGeneric();
     const st = replay(game), g = GAMES[game.type];
     if (st.winner !== null) return finish(st);
     const p = st.P[st.cur];
@@ -146,6 +164,39 @@ export function spielen(main) {
         <button class="btn pri big" data-k="rematch">Revanche</button><button class="btn" data-k="new">Neues Spiel</button></div></div>`;
   }
 
+  // ---------- Alle anderen Spiele (games.js) ----------
+  const pad = (hl, p) => `<div class="play-pad">
+        <div class="seg mult" role="radiogroup" aria-label="Multiplikator">${[1, 2, 3].map(m => `<button data-m="${m}" class="${mult === m ? 'on' : ''}" role="radio" aria-checked="${mult === m}">${['', 'Single', 'Double', 'Triple'][m]}</button>`).join('')}</div>
+        <div class="tg all">${ALL.map(t => `<button data-t="${t}" class="${hl.includes(t) ? 'mine' : ''}" ${t === 25 && mult === 3 ? 'disabled' : ''}>${lbl(t)}</button>`).join('')}
+          <button data-t="0" class="miss">Fehlwurf</button></div>
+        <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
+          <button class="btn" data-k="next" ${p.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
+          ${navigator.mediaDevices ? `<button class="btn ${cam && cam.active ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
+          <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div></div>`;
+  function playGeneric() {
+    const def = DEFS[game.type], S = run(game);
+    if (S.over) return finishGeneric(S);
+    const p = S.P[S.cur];
+    const rows = S.P.map(x => `<tr class="${x.i === S.cur ? 'on' : ''} ${x.out ? 'gone' : ''}"><th scope="row"><span class="pn">${esc(x.name)}</span></th>${def.row(x, S).map(c => `<td>${c}</td>`).join('')}</tr>`).join('');
+    main.innerHTML = `<div class="wrap play-g">
+      <div class="play-top"><div><span class="muted small">${esc(def.name)}</span>
+        <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
+        <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => `<span class="${S.visit[k] ? 'f' : ''}">${S.visit[k] ? dartTxt(S.visit[k]) : ''}</span>`).join('')}</div></div>
+      <p class="play-info">${esc(def.info ? def.info(S) : '')}${S.note ? ` <span class="play-note" role="status">${esc(S.note)}</span>` : ''}</p>
+      <div class="tbl-scroll play-board"><table class="tbl ck gen"><thead><tr><th>Spieler</th>${def.cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+      ${pad(def.highlight ? def.highlight(S) : [], S)}</div>`;
+    if (cam && cam.active) cam.sync();
+  }
+  function finishGeneric(S) {
+    const def = DEFS[game.type], r = def.rank(S);
+    const w = S.winner !== null ? S.P[S.winner] : r[0];
+    main.innerHTML = `<div class="wrap play-end"><span class="muted small">${esc(def.name)}</span>
+      <h1 class="tt">🏆 ${esc(w.name)} gewinnt</h1>${S.note ? `<p class="play-note">${esc(S.note)}</p>` : ''}
+      <ol class="list play-rank">${r.map((p, k) => `<li class="${p.i === w.i ? 'w' : ''}"><span><b>${k + 1}.</b> ${esc(p.name)}</span><span class="muted">${esc(p.sub)}</span></li>`).join('')}</ol>
+      <div class="bbtns"><button class="btn" data-k="undo">↶ Letzten Dart zurück</button>
+        <button class="btn pri big" data-k="rematch">Revanche</button><button class="btn" data-k="new">Neues Spiel</button></div></div>`;
+  }
+
   const onPlay = e => {
     if (!game) return;
     const b = e.target.closest('button'); if (!b || b.disabled) return;
@@ -160,16 +211,16 @@ export function spielen(main) {
     switch (b.dataset.k) {
       case 'cam':
         if (cam && cam.active) { cam.stop(); return play(); }
-        cam = createCamera({ targets: GAMES[game.type].targets, visitInfo: () => ({ inVisit: replay(game).inVisit }),
+        cam = createCamera({ targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
           onDart: (t, m) => { if (!game) return; game.darts.push({ t, m: t ? m : 0 }); mult = 1; save(); play(); }, onClose: () => play() });
         cam.start(); return play();
       case 'undo': game.darts.pop(); save(); return play();
-      case 'next': { const st = replay(game); for (let k = st.inVisit; k < 3; k++) game.darts.push({ t: 0, m: 0 }); save(); return play(); }
+      case 'next': { const st = isCk(game.type) ? replay(game) : run(game); for (let k = st.inVisit; k < 3; k++) game.darts.push({ t: 0, m: 0 }); save(); return play(); }
       case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; game = null; store.del(KEY); if (cam) cam.stop(); return setup();
       case 'rematch': {
         // Revanche: gleiche Spieler, der bisherige Startspieler rückt ans Ende
         const pl = [...game.players.slice(1), game.players[0]];
-        game = { ...game, players: pl, darts: [], started: Date.now() }; save(); mult = 1; return play();
+        game = { ...game, players: pl, darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; return play();
       }
       case 'new': game = null; store.del(KEY); if (cam) cam.stop(); return setup();
     }
