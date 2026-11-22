@@ -6,11 +6,13 @@ import { live, baum, tabelle, halle } from './views.js';
 import { watchTheme } from './theme.js';
 import { anmelden, spieler, druck, regeln, sieger } from './extra.js';
 import { spielen } from './cricket.js';
+import { meBar, recap, startWatch } from './me.js';
 
 const main = document.getElementById('main');
 const nav = document.getElementById('nav');
 let cleanup = null;
 
+let meCleanup = null;
 function route() {
   if (cleanup) { cleanup(); cleanup = null; }
   let h = location.hash.replace('#', '');
@@ -23,12 +25,16 @@ function route() {
   const inMore = !!document.querySelector(`#moreMenu [data-r="${h.split('/')[0]}"]`);
   const mb = document.getElementById('moreBtn'); if (mb) { mb.classList.toggle('cur', inMore); closeMore(); }
   document.body.classList.toggle('scoring', h === 'schiri');
+  // „Mein Spieler“-Leiste nur über der Live-Ansicht (nicht auf Tablets)
+  if (meCleanup) { meCleanup(); meCleanup = null; }
+  if (h === 'live' && !store.get('vynen-tablet', false)) meCleanup = meBar(document.getElementById('mebar'));
   if (h === 'schiri') return schiri();
   if (h === 'admin') return admin();
   main.onclick = null;
   if (h === 'anmelden') { cleanup = anmelden(main); return; }
   if (h === 'spielen') { cleanup = spielen(main); return; }
   if (h === 'regeln') { cleanup = regeln(main); return; }
+  if (h.startsWith('recap/')) { cleanup = recap(main, h.slice(6)); return; }
   if (h === 'sieger') { cleanup = sieger(main); return; }
   if (h === 'druck') { cleanup = druck(main); return; }
   if (h.startsWith('spieler/')) { cleanup = spieler(main, h.slice(8)); return; }
@@ -208,3 +214,4 @@ document.addEventListener('click', e => { if (!e.target.closest('#more')) closeM
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMore(); });
 watchTheme();
 route();
+if (!store.get('vynen-tablet', false)) startWatch();

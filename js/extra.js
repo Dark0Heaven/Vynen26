@@ -3,6 +3,7 @@ import { rpc, esc, sb } from './db.js';
 import { roundName, roundCfg, OUT_LABEL } from './rules.js';
 import { watchTournament } from './data.js';
 import { bracketHtml, BUCKETS } from './views.js';
+import { enablePush, PUSH_MSG, startWatch } from './me.js';
 
 const fmt = v => v ? v.toFixed(1).replace('.', ',') : '–';
 const dateDe = s => s ? new Date(s + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
@@ -48,14 +49,19 @@ function wireInstall(root) {
 
 // ---------- Anmeldung (#anmelden) ----------
 export function anmelden(main) {
-  let alive = true;
+  let alive = true, regName = '';
   const draw = (info, msg = '', ok = false) => {
     if (!alive) return;
     if (!info) { main.innerHTML = '<p class="pd">Keine Verbindung. Bitte später neu laden.</p>'; return; }
     const head = `<h2>Anmeldung</h2><p class="muted">Neujahrsdart-Turnier Vynen 26 · Sa 27.02.2027 · 17:00 Uhr · Platzhaus Vynen<br>
       Startgeld ${info.fee} € inkl. Freigetränke und Currywurst, bar vor Ort${info.deadline ? ` · Anmeldeschluss ${dateDe(info.deadline)}` : ''}</p>`;
     if (ok) { main.innerHTML = `<div class="adm-box">${head}<p class="note ok-note" role="status">${esc(msg)}</p>
-      ${installGuide()}<a class="btn" href="#live">Zur Live-Ansicht</a></div>`; wireInstall(main); return; }
+      <div class="card inst"><h3>🔔 Am Turniertag benachrichtigen?</h3><p class="muted">Du bekommst eine Nachricht, wenn du dran bist, dein Ergebnis und am Ende deinen persönlichen Recap.</p>
+        <button class="btn pri" data-follow>Ja, benachrichtigen</button><p class="small follow-msg" role="status"></p></div>
+      ${installGuide()}<a class="btn" href="#live">Zur Live-Ansicht</a></div>`; wireInstall(main);
+      const fb = main.querySelector('[data-follow]');
+      fb.onclick = async () => { fb.disabled = true; const r = await enablePush(regName); main.querySelector('.follow-msg').textContent = PUSH_MSG[r] || ''; startWatch(); if (r !== 'ok') fb.disabled = false; };
+      return; }
     if (!info.open) { main.innerHTML = `<div class="adm-box">${head}<p class="note">Die Online-Anmeldung ist geschlossen. Nachmelden geht am Turniertag vor Ort.</p>${installGuide()}</div>`; wireInstall(main); return; }
     main.innerHTML = `<div class="adm-box">${head}
       <form id="rf" class="form"><label for="rn">Name</label><input id="rn" maxlength="40" autocomplete="name" required>
@@ -69,6 +75,7 @@ export function anmelden(main) {
       const b = f.querySelector('button'); b.disabled = true;
       try {
         const n = await rpc('public_register', { p_name: f.rn.value, p_phone: f.rp.value });
+        regName = f.rn.value.trim();
         draw(info, `Danke, ${f.rn.value.trim()}! Du bist angemeldet (Nr. ${n}). Bitte ${info.fee} € bar am Turniertag mitbringen.`, true);
       } catch (err) {
         const k = (err && err.message || '').trim();
