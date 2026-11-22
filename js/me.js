@@ -56,25 +56,45 @@ export function meBar(el) {
           <span class="bbtns">${pushOn() ? '' : '<button class="btn sm pri" data-me="push">Push einschalten</button>'}
           <a class="btn sm" href="#recap/${encodeURIComponent(me)}">Mein Recap</a><button class="btn sm ghost" data-me="off">Ändern</button></span>
           ${msg ? `<p class="small mebar-msg">${esc(msg)}</p>` : ''}</div>`
-      : `<form class="mebar" id="mef"><label for="men">🔔 Benachrichtigen, wenn ich dran bin:</label>
-          <input id="men" list="men-l" placeholder="Dein Name" maxlength="60" autocomplete="name" required>
-          <datalist id="men-l">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
-          <button class="btn sm pri" type="submit">Folgen</button>${msg ? `<p class="small mebar-msg">${esc(msg)}</p>` : ''}</form>`;
+      : `<form class="mebar" id="mef" autocomplete="off"><label for="men">🔔 Benachrichtigen, wenn ich dran bin:</label>
+          <div class="combo"><input id="men" placeholder="Namen eintippen …" maxlength="60" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="men-l">
+            <ul class="combo-l" id="men-l" role="listbox" hidden></ul></div>
+          <button class="btn sm pri" type="submit" disabled>Folgen</button>${msg ? `<p class="small mebar-msg">${esc(msg)}</p>` : ''}</form>`;
     const f = el.querySelector('#mef');
-    if (f) f.onsubmit = async e => {
-      e.preventDefault(); const n = f.men.value.trim(); if (!n) return;
-      msg = 'Einen Moment …'; draw();
-      msg = PUSH_MSG[await enablePush(n)] || ''; draw(); startWatch();
-    };
+    if (f) {
+      const inp = f.men, list = f.querySelector('#men-l'), btn = f.querySelector('button[type=submit]');
+      const pick = n => { inp.value = n; list.hidden = true; inp.setAttribute('aria-expanded', 'false'); btn.disabled = false; };
+      const exact = () => names.find(n => norm(n) === norm(inp.value));
+      inp.oninput = () => {
+        const q = norm(inp.value), hits = q ? names.filter(n => norm(n).includes(q)).slice(0, 8) : [];
+        btn.disabled = !exact();
+        list.innerHTML = hits.length ? hits.map(n => `<li role="option" data-n="${esc(n)}">${esc(n)}</li>`).join('')
+          : q ? '<li class="none">Nicht in der Anmeldeliste – bitte so schreiben wie angemeldet</li>' : '';
+        list.hidden = !q; inp.setAttribute('aria-expanded', String(!!q));
+      };
+      list.onclick = e => { const li = e.target.closest('[data-n]'); if (li) pick(li.dataset.n); };
+      inp.onkeydown = e => { if (e.key === 'Enter') { const first = list.querySelector('[data-n]'); if (first && !exact()) { e.preventDefault(); pick(first.dataset.n); } } };
+      f.onsubmit = async e => {
+        e.preventDefault(); const n = exact(); if (!n) return;
+        msg = 'Einen Moment …'; draw();
+        msg = PUSH_MSG[await enablePush(n)] || ''; draw(); startWatch();
+      };
+    }
   };
   el.onclick = async e => {
     const b = e.target.closest('[data-me]'); if (!b) return;
     if (b.dataset.me === 'push') { msg = PUSH_MSG[await enablePush(getMe())] || ''; draw(); }
     if (b.dataset.me === 'off') { await disableMe(); msg = ''; draw(); }
   };
-  latestTournament().then(t => t && sb.from('players').select('name,pair').eq('tournament_id', t.id))
-    .then(r => { names = ((r && r.data) || []).filter(p => !p.pair).map(p => p.name).sort((a, b) => a.localeCompare(b, 'de')); draw(); })
-    .catch(() => draw());
+  // Namen aus der Anmeldeliste und dem aktuellen Turnier (ohne Doppel-Paare)
+  Promise.all([
+    rpc('public_reg_names', {}).catch(() => []),
+    latestTournament().then(t => t ? sb.from('players').select('name,pair').eq('tournament_id', t.id) : { data: [] }).catch(() => ({ data: [] })),
+  ]).then(([regs, pl]) => {
+    const all = new Map();
+    for (const n of [...(regs || []), ...((pl && pl.data) || []).filter(p => !p.pair).map(p => p.name)]) if (n) all.set(norm(n), n);
+    names = [...all.values()].sort((a, b) => a.localeCompare(b, 'de')); draw();
+  });
   draw();
   return () => { alive = false; el.hidden = true; el.innerHTML = ''; el.onclick = null; };
 }

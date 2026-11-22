@@ -664,3 +664,10 @@ body.play:has(.cam-panel:not([hidden]):not(.full)) .play-g{padding-top:110px}
 .chk-list label{display:flex;align-items:center;gap:8px;min-height:32px}
 .chk-list input{width:22px;height:22px;accent-color:var(--win)}
 .linkbtn{background:none;border:0;color:var(--muted);font:inherit;font-size:14px;text-decoration:underline;cursor:pointer;padding:6px 0;margin-bottom:6px}
+.combo{position:relative;flex:1;min-width:170px;max-width:300px}
+.combo input{width:100%}
+.combo-l{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;list-style:none;margin:0;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 26px rgba(0,0,0,.5);max-height:260px;overflow:auto}
+.combo-l li{padding:10px 12px;border-radius:8px;cursor:pointer;font-size:17px}
+.combo-l li:hover{background:var(--panel2)}
+.combo-l li.none{cursor:default;color:var(--muted);font-size:14px}
+.mebar button[disabled]{opacity:.45}
