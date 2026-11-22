@@ -166,16 +166,23 @@ export async function startAdmin(main) {
 
   // ---------- Ansicht ----------
   function draw() {
-    const tabs = `<div class="seg adm-tabs" role="group">
-      <button class="${tab === 'boards' ? 'on' : ''}" data-tab="boards" ${data ? '' : 'disabled'}>Boards</button>
-      <button class="${tab === 'fix' ? 'on' : ''}" data-tab="fix" ${data ? '' : 'disabled'}>Korrekturen</button>
-      <button class="${tab === 'reg' ? 'on' : ''}" data-tab="reg">Anmeldungen <span class="cnt">${regs.length}</span></button>
-      <button class="${tab === 'new' ? 'on' : ''}" data-tab="new">Neues Turnier</button></div>`;
-    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns"><button class="btn sm theme-btn" id="th" ${data ? '' : 'disabled'}>${currentTheme() === 'bigfish' ? 'Design: Vynen' : 'Design: Big Fish VyMa'}</button><button class="btn sm bell ${logOpen ? 'on' : ''}" id="bell" aria-expanded="${logOpen}">${bellHtml()}</button><a class="btn sm" href="#halle">Hallen-Anzeige</a>${data ? '<a class="btn sm" href="#druck">Notfall-Paket</a>' : ''}<button class="btn sm" id="lo">Abmelden</button></div></div>
+    const TABS = [['boards', 'Boards', !data], ['fix', 'Korrekturen', !data], ['reg', `Anmeldungen (${regs.length})`, false], ['new', 'Neues Turnier', false]];
+    const tabs = `<label class="adm-tabsel"><span class="flabel">Bereich</span><select id="tabsel" aria-label="Bereich der Turnierleitung">${TABS.map(([k, l, dis]) =>
+      `<option value="${k}" ${tab === k ? 'selected' : ''} ${dis ? 'disabled' : ''}>${l}</option>`).join('')}</select></label>`;
+    main.innerHTML = `<div class="wrap adm"><div class="adm-head"><h1 class="tt">Turnierleitung</h1><div class="bbtns adm-actions"><button class="btn sm bell ${logOpen ? 'on' : ''}" id="bell" aria-expanded="${logOpen}">${bellHtml()}</button>
+        <div class="adm-menu"><button class="btn sm" id="amb" aria-haspopup="true" aria-expanded="false" aria-controls="amm">☰ Menü ▾</button>
+          <div class="adm-menu-list" id="amm" hidden>
+            <button class="theme-btn" id="th" ${data ? '' : 'disabled'}>${currentTheme() === 'bigfish' ? 'Design: Vynen 26' : 'Design: Big Fish VyMa'}</button>
+            <a href="#halle">Hallen-Anzeige</a>${data ? '<a href="#druck">Notfall-Paket</a>' : ''}
+            <button id="lo">Abmelden</button></div></div></div></div>
       <div id="logbox">${logOpen ? logHtml() : ''}</div>
       ${tabs}${data && data.t.is_test ? `<div class="note testbar"><span><b>Testturnier</b> · Generalprobe. Wenn ihr fertig seid, hier löschen. Danach ist wieder das echte Turnier aktiv.</span>
         <button class="btn sm warn" id="deltest">Testturnier löschen</button></div>` : ''}${msg ? `<p class="note" role="alert">${esc(msg)}</p>` : ''}<div id="body"></div></div>`;
     main.querySelector('#lo').onclick = async () => { await sb.auth.signOut(); reload(); };
+    const amb = main.querySelector('#amb'), amm = main.querySelector('#amm');
+    const closeM = () => { amm.hidden = true; amb.setAttribute('aria-expanded', 'false'); };
+    amb.onclick = e => { e.stopPropagation(); amm.hidden = !amm.hidden; amb.setAttribute('aria-expanded', String(!amm.hidden)); };
+    main.addEventListener('click', e => { if (!e.target.closest('.adm-menu')) closeM(); });
     main.querySelector('#bell').onclick = async () => {
       logOpen = !logOpen;
       if (logOpen) { prevSeen = seenAt; seenAt = new Date().toISOString(); rpc('admin_seen', {}).catch(() => {}); }
@@ -188,7 +195,7 @@ export async function startAdmin(main) {
       catch (err) { msg = errText(err); }
       draw();
     };
-    main.querySelectorAll('[data-tab]').forEach(b => b.onclick = async () => { tab = b.dataset.tab; msg = ''; if (tab === 'reg') await loadRegs().catch(() => {}); draw(); });
+    main.querySelector('#tabsel').onchange = async e => { tab = e.target.value; msg = ''; if (tab === 'reg') await loadRegs().catch(() => {}); draw(); };
     const dt = main.querySelector('#deltest');
     if (dt) dt.onclick = async () => {
       if (!dt.dataset.sure) { dt.dataset.sure = '1'; dt.textContent = 'Wirklich alles vom Test löschen?'; return; }

@@ -614,3 +614,15 @@ body.play:has(.cam-panel:not([hidden]):not(.full)) .play-g{padding-top:110px}
   .more-btn{padding:8px 8px}
   .ref-top{padding:8px 10px;margin-left:2px}
 }
+
+/* Leitung: Aktionen als Menü */
+.adm-actions{align-items:center}
+.adm-menu{position:relative}
+.adm-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:220px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;box-shadow:0 12px 30px rgba(0,0,0,.55);display:flex;flex-direction:column}
+.adm-menu-list[hidden]{display:none}
+.adm-menu-list a,.adm-menu-list button{font:inherit;text-align:left;text-decoration:none;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:14px;padding:12px 14px;border-radius:8px;color:var(--fg);background:none;border:0;cursor:pointer}
+.adm-menu-list a:hover,.adm-menu-list button:hover,.adm-menu-list a:focus-visible,.adm-menu-list button:focus-visible{background:var(--panel2)}
+.adm-menu-list button:disabled{opacity:.4;cursor:not-allowed}
+.adm-tabsel{display:flex;align-items:center;gap:10px;margin:4px 0 12px;max-width:420px}
+.adm-tabsel .flabel{margin:0}
+.adm-tabsel select{flex:1;font-size:18px;font-weight:700;min-height:48px}
