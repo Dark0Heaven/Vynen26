@@ -1,5 +1,5 @@
 // Turnierleitung: Login, Turnier anlegen, Spiele auf Boards legen und PINs vergeben.
-import { sb, rpc, latestTournament, loadTournament, loadVisits, esc } from './db.js';
+import { sb, rpc, latestTournament, loadTournament, loadVisits, esc, store } from './db.js';
 import { swissStandings, swissPairing, suggestRounds } from './swiss.js';
 import { setTheme, currentTheme } from './theme.js';
 import { roundCfg, roundName, OUT_LABEL } from './rules.js';
@@ -213,7 +213,7 @@ export async function startAdmin(main) {
     const ready = matches.filter(m => m.status === 'ready').sort((a, b) => a.round - b.round || (a.kind > b.kind ? 1 : -1) || a.idx - b.idx);
     const busy = new Set(matches.filter(m => ['live', 'review'].includes(m.status)).map(m => m.board));
     const free = []; for (let b = 1; b <= t.boards; b++) if (!busy.has(b)) free.push(b);
-    let h = `<h2 class="sec">${esc(t.name)} · Boards</h2><div class="boards">`;
+    let h = checklist() + `<h2 class="sec">${esc(t.name)} · Boards</h2><div class="boards">`;
     for (let b = 1; b <= t.boards; b++) {
       const m = matches.find(x => x.board === b && ['live', 'review'].includes(x.status));
       if (!m) { h += `<article class="bd free"><div class="bd-no">${b}</div><p class="muted">Frei</p></article>`; continue; }
@@ -246,6 +246,13 @@ export async function startAdmin(main) {
         <div class="bbtns">${free.length ? free.map(b => `<button class="btn sm pri" data-as="${m.id}" data-b="${b}">Board ${b}</button>`).join('') : '<span class="muted small">alle Boards belegt</span>'}</div></li>`;
     }).join('')}</ol>`;
     body.innerHTML = h;
+    const chk = body.querySelector('#chkl');
+    if (chk) {
+      chk.ontoggle = () => store.set('vynen-check-open-' + data.t.id, chk.open);
+      chk.onchange = e => { const c = e.target.closest('[data-chk]'); if (!c) return;
+        const k = 'vynen-check-' + data.t.id, v = store.get(k, {}); v[c.dataset.chk] = c.checked; store.set(k, v); c.closest('li').classList.toggle('ok', c.checked);
+        const n = chk.querySelectorAll('li.ok').length, all = chk.querySelectorAll('li').length, cnt = chk.querySelector('.cnt'); cnt.textContent = `${n}/${all}`; cnt.classList.toggle('ok', n === all); };
+    }
     body.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
       try {
@@ -292,6 +299,31 @@ export async function startAdmin(main) {
         msg = 'Spieler nachgemeldet. Er wird ab der nächsten Auslosung berücksichtigt.'; preview = null; await loadAll(); draw(); }
       catch (err) { msg = errText(err); draw(); }
     };
+  }
+
+  // ---------- Turniertag-Checkliste (vieles hakt sich selbst ab) ----------
+  function checklist() {
+    const t = data.t, man = store.get('vynen-check-' + t.id, {});
+    const deadlinePassed = regInfo && regInfo.deadline && new Date(regInfo.deadline + 'T23:59:59') < new Date();
+    const pinsAll = Array.from({ length: t.boards }, (_, i) => bpins.find(p => p.board === i + 1));
+    const items = [
+      ['reg', 'Online-Anmeldung geschlossen', regInfo && (!regInfo.open || deadlinePassed), 'Anmeldungen'],
+      ['paid', 'Alle Spieler haben bezahlt', regs.length > 0 && regs.every(r => r.paid), 'Anmeldungen'],
+      ['real', 'Echtes Turnier angelegt (kein Testturnier)', !t.is_test, null],
+      ['pins', 'Board-PINs für alle Boards erzeugt', pinsAll.every(Boolean), null],
+      ['tabs', 'Alle Tablets mit Board-PIN angemeldet', pinsAll.every(p => p && p.expires_at), null],
+      ['cost', 'Kosten für Getränke & Currywurst eingetragen', costs !== null && costs !== undefined, 'Anmeldungen'],
+      ['print', 'Notfall-Paket gedruckt', !!man.print, 'manual'],
+      ['hall', 'Hallen-Anzeige läuft auf dem Bildschirm', !!man.hall, 'manual'],
+      ['test', 'Generalprobe gemacht', !!man.test, 'manual'],
+    ];
+    const done = items.filter(i => i[2]).length;
+    const openState = store.get('vynen-check-open-' + t.id, done < items.length);
+    return `<details class="card chk-list" id="chkl" ${openState ? 'open' : ''}><summary><b>Turniertag-Checkliste</b> <span class="cnt ${done === items.length ? 'ok' : ''}">${done}/${items.length}</span></summary>
+      <ul>${items.map(([k, l, ok, how]) => `<li class="${ok ? 'ok' : ''}">${how === 'manual'
+        ? `<label><input type="checkbox" data-chk="${k}" ${ok ? 'checked' : ''}> ${l}</label>`
+        : `<span class="ic" aria-hidden="true">${ok ? '✓' : '○'}</span> ${l}${!ok && how ? ` <span class="muted small">→ ${how}</span>` : ''}${ok ? '' : ''}`}</li>`).join('')}</ul>
+      <p class="muted small">Häkchen ohne Kästchen setzen sich von selbst, sobald es erledigt ist.</p></details>`;
   }
 
   // ---------- Liga: Spieler pro Spiel eintragen ----------
@@ -530,8 +562,9 @@ export async function startAdmin(main) {
       <div class="flabel">Turniermodus</div>
       <div class="seg modesel" role="radiogroup" aria-label="Turniermodus">
         <button type="button" class="on" data-mode="ko" role="radio" aria-checked="true">KO-Baum</button>
-        <button type="button" data-mode="swiss" role="radio" aria-checked="false">Schweizer System</button>
-        <button type="button" data-mode="league" role="radio" aria-checked="false">Liga</button></div>
+        <button type="button" data-mode="swiss" role="radio" aria-checked="false" class="xmode" hidden>Schweizer System</button>
+        <button type="button" data-mode="league" role="radio" aria-checked="false" class="xmode" hidden>Liga</button></div>
+      <button type="button" class="linkbtn" id="xmodes">Weitere Modi (Schweizer System, Liga) ▾</button>
       <div id="lgopt" class="grid2" hidden>
         <div><label for="lga">Team 1 (Heim)</label><input id="lga" maxlength="40" value="Big Fish VyMa"></div>
         <div><label for="lgb">Team 2 (Gast)</label><input id="lgb" maxlength="40" placeholder="Gastmannschaft"></div>
@@ -563,6 +596,7 @@ export async function startAdmin(main) {
     const names = () => [...new Set(f.tp.value.split('\n').map(s => s.trim()).filter(Boolean))];
     let lastKey = '', mode = 'ko', roundsTouched = false;
     const swopt = body.querySelector('#swopt');
+    body.querySelector('#xmodes').onclick = e => { body.querySelectorAll('.xmode').forEach(x => { x.hidden = false; }); e.currentTarget.hidden = true; };
     body.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
       mode = b.dataset.mode;
       body.querySelectorAll('[data-mode]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });

@@ -650,3 +650,17 @@ body.play:has(.cam-panel:not([hidden]):not(.full)) .play-g{padding-top:110px}
 .rc-t b{font-family:var(--num);font-size:36px;line-height:1.05}
 @media (max-width:520px){.rc-grid{grid-template-columns:repeat(2,1fr)}}
 .mebar.on>span:first-child{flex:1 1 220px;min-width:0}
+
+/* Checkliste */
+.chk-list{padding:10px 14px;margin-bottom:14px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:var(--r)}
+.chk-list summary{cursor:pointer;font-size:18px;text-transform:uppercase;letter-spacing:.04em;list-style-position:inside}
+.chk-list .cnt{display:inline-block;margin-left:6px;padding:0 8px;border-radius:99px;background:var(--red);color:#fff;font-size:14px}
+.chk-list .cnt.ok{background:var(--win)}
+.chk-list ul{list-style:none;margin:10px 0 4px;padding:0;display:flex;flex-direction:column;gap:6px}
+.chk-list li{font-size:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chk-list li .ic{width:22px;text-align:center;color:var(--muted);font-weight:800}
+.chk-list li.ok .ic{color:var(--win)}
+.chk-list li.ok{color:var(--muted)}
+.chk-list label{display:flex;align-items:center;gap:8px;min-height:32px}
+.chk-list input{width:22px;height:22px;accent-color:var(--win)}
+.linkbtn{background:none;border:0;color:var(--muted);font:inherit;font-size:14px;text-decoration:underline;cursor:pointer;padding:6px 0;margin-bottom:6px}
