@@ -75,7 +75,7 @@ function playerStats(d) {
   const { players, matches, R, t } = d;
   const S = {};
   for (const p of players) S[p.id] = { id: p.id, name: p.name, seed: p.seed, withdrawn: p.withdrawn, sp: 0, s: 0, n: 0, lf: 0, la: 0,
-    pts: 0, darts: 0, t180: 0, sc: { 80: 0, 100: 0, 120: 0, 140: 0, 160: 0, 180: 0 }, hf: 0, hfs: [], best: 0, bestAvg: 0, out: null, place: null, reach: 0 };
+    pts: 0, darts: 0, t180: 0, sc: { 80: 0, 100: 0, 120: 0, 140: 0, 160: 0, 180: 0 }, hf: 0, co: 0, hfs: [], best: 0, bestAvg: 0, out: null, place: null, reach: 0 };
   for (const m of matches) {
     const ids = [m.player_a, m.player_b];
     if (m.kind === 'ko') ids.forEach(id => { if (S[id]) S[id].reach = Math.max(S[id].reach, m.round); });
@@ -93,6 +93,7 @@ function playerStats(d) {
       }
       const k = v.leg_no + '-' + v.side; legDarts[k] = (legDarts[k] || 0) + v.darts;
       if (v.checkout) {
+        if (v.score > p.co) p.co = v.score; // höchstes Finish (jeder Wert)
         if (v.score >= 101) { p.hfs.push(v.score); if (v.score > p.hf) p.hf = v.score; } // Highfinish = 101–170
         const ld = legDarts[k];
         if (!p.best || ld < p.best) p.best = ld;

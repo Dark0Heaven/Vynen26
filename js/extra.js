@@ -116,7 +116,7 @@ export function spieler(main, id) {
     main.innerHTML = `<div class="wrap pf"><a class="btn ghost" href="#tabelle">← Tabelle</a>
       <h1 class="tt">${esc(p.name)}</h1><p class="muted">${esc(status)}</p>
       <div class="pf-grid">${tile('Average', fmt(p.avg))}${tile('Bester Ø (Spiel)', fmt(p.bestAvg))}${tile('Spiele', `${p.s}–${p.n}`)}
-        ${tile('Legs', `${p.lf}:${p.la}`)}${tile('Höchstes Finish', p.hf || '–')}${tile('Kürzestes Leg', p.best ? p.best + ' Darts' : '–')}
+        ${tile('Legs', `${p.lf}:${p.la}`)}${tile('Höchstes Finish', p.co || '–')}${tile('Kürzestes Leg', p.best ? p.best + ' Darts' : '–')}
         ${sw ? tile('Buchholz', sw.buch) : ''}</div>
       <h2 class="sec">Aufnahmen</h2><div class="pf-sc">${BUCKETS.map(b => `<div><span>${b === 180 ? '180' : b + '+'}</span><b class="${b === 180 && p.sc[b] ? 'hot' : ''}">${p.sc[b] || 0}</b></div>`).join('')}</div>
       ${p.hfs.length ? `<h2 class="sec">High Finishes</h2><p class="pf-hf">${p.hfs.sort((a, b) => b - a).map(v => `<span>${v}</span>`).join('')}</p>` : ''}
@@ -177,7 +177,7 @@ function download(d) {
   }
   rows.push([]);
   rows.push(['Spieler', 'Platz', 'Siege', 'Niederlagen', 'Legs', 'Average', 'Höchstes Finish', '180er']);
-  for (const p of d.stats) rows.push([p.name, p.place || '', p.s, p.n, `${p.lf}:${p.la}`, p.avg ? p.avg.toFixed(2).replace('.', ',') : '', p.hf || '', p.t180]);
+  for (const p of d.stats) rows.push([p.name, p.place || '', p.s, p.n, `${p.lf}:${p.la}`, p.avg ? p.avg.toFixed(2).replace('.', ',') : '', p.co || '', p.t180]);
   const csv = '﻿' + rows.map(r => r.map(q).join(';')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));

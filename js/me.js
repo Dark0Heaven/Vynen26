@@ -144,7 +144,7 @@ export function recap(main, nameRaw) {
     const reach = p.place ? `${p.place}. Platz` : p.silver === 'win' ? 'Silver-Cup-Sieger'
       : t.mode === 'ko' ? (['Finale', 'Halbfinale', 'Viertelfinale', 'Achtelfinale', '16tel-Finale'][R - 1 - Math.max(p.reach, p.out ?? 0)] || `Runde ${Math.max(p.reach, p.out ?? 0) + 1}`) + (p.out === null ? '' : ' erreicht')
       : d.swiss ? `Platz ${(d.swiss.list.find(x => x.id === p.id) || {}).rank}` : '';
-    const hi = p.t180 ? `${p.t180}× 180 – Maximum!` : p.hf ? `Highfinish ${p.hf}` : p.best ? `Bestes Leg: ${p.best} Darts` : p.bestAvg ? `Bestes Spiel: Ø ${f1(p.bestAvg)}` : 'Danke fürs Mitspielen!';
+    const hi = p.t180 ? `${p.t180}× 180 – Maximum!` : p.hf ? `Highfinish ${p.hf}` : p.co ? `Höchstes Finish: ${p.co}` : p.best ? `Bestes Leg: ${p.best} Darts` : p.bestAvg ? `Bestes Spiel: Ø ${f1(p.bestAvg)}` : 'Danke fürs Mitspielen!';
     const tons = (p.sc[100] || 0) + (p.sc[120] || 0) + (p.sc[140] || 0) + (p.sc[160] || 0) + (p.sc[180] || 0);
     last = { p, reach, hi, tons, title: t.name };
     const tile = (l, v) => `<div class="rc-t"><span>${l}</span><b>${v}</b></div>`;
@@ -152,7 +152,7 @@ export function recap(main, nameRaw) {
       <h1 class="tt">${esc(p.name)}</h1><p class="rc-reach">${esc(reach)}${p.silver === 'in' || p.silver === 'out' ? ' · Silver Cup' : ''}</p>
       <p class="rc-hi">⭐ ${esc(hi)}</p>
       <div class="rc-grid">${tile('Average', f1(p.avg))}${tile('Spiele', `${p.s}–${p.n}`)}${tile('Legs', `${p.lf}:${p.la}`)}
-        ${tile('Bestes Spiel Ø', f1(p.bestAvg))}${tile('Höchstes Finish', p.hf || '–')}${tile('Kürzestes Leg', p.best ? p.best + ' Darts' : '–')}
+        ${tile('Bestes Spiel Ø', f1(p.bestAvg))}${tile('Höchstes Finish', p.co || '–')}${tile('Kürzestes Leg', p.best ? p.best + ' Darts' : '–')}
         ${tile('100+', tons)}${tile('140+', (p.sc[140] || 0) + (p.sc[160] || 0) + (p.sc[180] || 0))}${tile('180er', p.t180)}</div>
       <div class="bbtns"><button class="btn pri big" data-rc="img">📸 Als Bild speichern</button><a class="btn" href="#spieler/${p.id}">Alle Spiele</a></div></div>`;
   }, () => { main.innerHTML = '<p class="pd">Keine Verbindung.</p>'; });
@@ -175,7 +175,7 @@ async function saveImage({ p, reach, hi, tons, title }) {
   g.fillStyle = '#fff'; g.font = font(800, 96, true); g.fillText(p.name.toUpperCase(), W / 2, 420, W - 80);
   g.fillStyle = gold; g.font = font(700, 52); g.fillText(reach, W / 2, 490, W - 80);
   g.fillStyle = acc; g.fillRect(W / 2 - 60, 520, 120, 6);
-  const tiles = [['AVERAGE', f1(p.avg)], ['SPIELE', `${p.s}–${p.n}`], ['LEGS', `${p.lf}:${p.la}`], ['HÖCHSTES FINISH', p.hf || '–'], ['100+', tons], ['180ER', p.t180]];
+  const tiles = [['AVERAGE', f1(p.avg)], ['SPIELE', `${p.s}–${p.n}`], ['LEGS', `${p.lf}:${p.la}`], ['HÖCHSTES FINISH', p.co || '–'], ['100+', tons], ['180ER', p.t180]];
   tiles.forEach(([l, v], i) => {
     const col = i % 3, row = Math.floor(i / 3), x = 60 + col * 330, y = 580 + row * 250;
     g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(x, y, 300, 220);
