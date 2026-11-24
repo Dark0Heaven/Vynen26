@@ -1,5 +1,5 @@
 // Freies Spiel: Cricket und Tactics für beliebig viele Spieler, nur auf diesem Gerät (kein Login, keine Datenbank)
-import { esc, store } from './db.js';
+import { esc, store, sb, rpc } from './db.js';
 import { createCamera, apply as hApply, segmentAt } from './camera.js';
 import { createAutodarts } from './autodarts.js';
 const PC = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches; // Maus = PC/Laptop
@@ -120,11 +120,96 @@ const markSym = n => n >= 3 ? '<span class="mk m3" aria-label="zu">ⓧ</span>' :
   : n === 1 ? '<span class="mk m1" aria-label="1 Treffer">╱</span>' : '<span class="mk m0"></span>';
 
 // ---------- Ansicht ----------
-export function spielen(main) {
+export function spielen(main, joinCode) {
   let game = store.get(KEY, null), mult = 1, sure = '', cam = null, camOn = false, fix = null;
   document.body.classList.add('play');
 
-  const save = () => store.set(KEY, game);
+  // ---------- Online-Spiel: Raum mit Code, Stand über Supabase, Änderungen per Realtime-Broadcast ----------
+  let room = store.get('vynen-room', null), chan = null, rpoll = null, pushing = Promise.resolve();
+  const saveRoom = () => store.set('vynen-room', room);
+  const local = () => { store.set(KEY, game); };
+  const save = () => { local(); if (room && game) push(); };
+  const curName = (g = game) => { if (!g) return ''; const S = isCk(g.type) ? replay(g) : run(g); return S.P[S.cur] ? S.P[S.cur].name : ''; };
+  const myTurn = () => !room || !game || room.mine.includes(curName());
+  function push() {
+    const snap = JSON.parse(JSON.stringify(game));
+    pushing = pushing.then(async () => {
+      try {
+        const v = await rpc('play_room_push', { p_code: room.code, p_ver: room.ver, p_game: snap });
+        if (v) { room.ver = v; saveRoom(); if (chan) chan.send({ type: 'broadcast', event: 'upd', payload: { v } }); }
+        else { roomNote = 'Gleichzeitig geändert – Stand vom anderen Gerät übernommen.'; await pull(true); }
+      } catch { roomNote = 'Keine Verbindung – Wurf ist nur hier gespeichert.'; play(); }
+    });
+  }
+  let roomNote = '';
+  async function pull(force) {
+    if (!room) return;
+    try {
+      const r = await rpc('play_room_get', { p_code: room.code }); const row = r && r[0];
+      if (!row) { roomNote = 'Online-Raum nicht mehr vorhanden.'; return; }
+      if (force || row.ver > room.ver) { room.ver = row.ver; saveRoom(); game = row.game; fix = null; local(); if (onScreen()) play(); }
+    } catch { /* nächster Versuch */ }
+  }
+  const onScreen = () => !!main.querySelector('.play-g, .play-end, .room-pick');
+  function connectRoom() {
+    leaveChan();
+    if (!room) return;
+    chan = sb.channel('play-' + room.code, { config: { broadcast: { self: false } } }).on('broadcast', { event: 'upd' }, () => pull()).subscribe();
+    rpoll = setInterval(() => pull(), 5000);
+  }
+  function leaveChan() { if (chan) { try { sb.removeChannel(chan); } catch {} } chan = null; clearInterval(rpoll); rpoll = null; }
+  async function createRoom() {
+    try {
+      const code = await rpc('play_room_create', { p_game: game });
+      room = { code, ver: 1, mine: [], picked: false }; saveRoom(); connectRoom(); play();
+    } catch { roomNote = ''; alert('Online-Raum konnte nicht erstellt werden. Internet prüfen.'); }
+  }
+  async function joinRoom(code) {
+    code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    try {
+      const r = await rpc('play_room_get', { p_code: code }); const row = r && r[0];
+      if (!row) return false;
+      if (cam) cam.stop(); camOn = false;
+      game = row.game; room = { code, ver: row.ver, mine: room && room.code === code ? room.mine : [], picked: !!(room && room.code === code && room.picked) };
+      saveRoom(); local(); connectRoom(); play(); return true;
+    } catch { return false; }
+  }
+  function leaveRoom() { leaveChan(); room = null; store.del('vynen-room'); }
+  const roomLink = () => `${location.origin}${location.pathname}#spielen/${room.code}`;
+  // Leiste über dem Spiel + Sperre, wenn ein Spieler am anderen Gerät dran ist
+  function decorate() {
+    if (!room || !game) return;
+    const box = main.querySelector('.play-g, .play-end'); if (!box) return;
+    const cn = curName(), mine = room.mine.includes(cn), over = !!main.querySelector('.play-end');
+    box.insertAdjacentHTML('afterbegin', `<div class="room-bar"><span>🌐 Online · Raum <b>${room.code}</b></span>
+      <span class="muted small">An diesem Gerät: ${room.mine.length ? room.mine.map(esc).join(', ') : 'niemand'}</span>
+      <button class="btn sm" data-k="rshare">Link teilen</button><button class="btn sm" data-k="rpick">Spieler wählen</button><button class="btn sm ghost" data-k="rleave">Raum verlassen</button>
+      ${!over && !mine ? `<b class="room-wait">⏳ ${esc(cn)} wirft am anderen Gerät …</b>` : ''}${roomNote ? `<span class="room-note">${esc(roomNote)}</span>` : ''}</div>`);
+    roomNote = '';
+    if (!over && !mine) box.classList.add('not-mine');
+  }
+  // Auswahl: Wer spielt an diesem Gerät?
+  function pickView() {
+    main.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.k === 'rpickok') { room.mine = [...main.querySelectorAll('[data-mine]:checked')].map(i => i.value); room.picked = true; saveRoom(); main.onclick = onPlay; play(); }
+      if (b.dataset.k === 'rshare') shareLink();
+    };
+    main.innerHTML = `<div class="wrap room-pick"><h1 class="tt">Online-Spiel</h1>
+      <div class="room-code"><span class="muted small">Raum-Code</span><b>${room.code}</b></div>
+      <p class="muted">Link an die anderen schicken oder Code unter Spielen → „Online beitreten“ eingeben.</p>
+      <div class="bbtns"><button class="btn" data-k="rshare">🔗 Link teilen</button></div>
+      <h2>Wer spielt an diesem Gerät?</h2>
+      <div class="room-mine">${game.players.map(n => `<label class="inl-l"><input type="checkbox" data-mine value="${esc(n)}" ${room.mine.includes(n) ? 'checked' : ''}> ${esc(n)}</label>`).join('')}</div>
+      <p class="muted small">Nur diese Spieler können hier Würfe eintragen (oder per Kamera/Autodarts). Zuschauen geht ohne Haken.</p>
+      <div class="bbtns"><button class="btn pri big" data-k="rpickok">Los geht's</button></div></div>`;
+  }
+  async function shareLink() {
+    const url = roomLink();
+    try { if (navigator.share) { await navigator.share({ title: 'Dart online – Vynen 26', text: `Spiel mit! Raum ${room.code}`, url }); return; } } catch { return; }
+    try { await navigator.clipboard.writeText(url); roomNote = 'Link kopiert.'; } catch { prompt('Link kopieren:', url); }
+    if (main.querySelector('.play-g, .play-end')) play();
+  }
   // Letzte Aufnahme (antippbar zum Korrigieren), Korrektur-Hinweis und bei Kamera die Scheibe
   function extras(S, cards) {
     const L = S.last, ck = isCk(game.type);
@@ -213,6 +298,7 @@ export function spielen(main) {
   }
   // Dart eintragen oder (im Korrekturmodus) ersetzen
   function enter(d, viaCam) {
+    if (fix === null && !myTurn()) return; // Online: anderer Spieler ist dran
     if (fix !== null && game.darts[fix]) { game.darts[fix] = d; fix = null; save(); if (cam && cam.active) cam.clear(); return play(); }
     game.darts.push(d); mult = 1; save();
     if (!viaCam && cam && cam.active) cam.manual();
@@ -250,13 +336,17 @@ export function spielen(main) {
           <span class="bbtns"><button class="btn sm" data-up="${i}" aria-label="${esc(n)} nach oben" ${i ? '' : 'disabled'}>↑</button>
           <button class="btn sm" data-rm="${i}" aria-label="${esc(n)} entfernen">✕</button></span></li>`).join('') || `<li class="muted">Noch keine Spieler. ${minPlayers(s.type) > 1 ? 'Mindestens zwei eintragen.' : 'Mindestens einen eintragen.'}</li>`}</ol>
         <div class="bbtns"><button class="btn" data-k="shuffle" ${players.length > 1 ? '' : 'disabled'}>Reihenfolge auslosen</button>
-          <button class="btn pri big" data-k="start" ${players.length >= minPlayers(s.type) && numsOk() ? '' : 'disabled'}>Spiel starten</button></div>
+          <button class="btn pri big" data-k="start" ${players.length >= minPlayers(s.type) && numsOk() ? '' : 'disabled'}>Spiel starten</button>
+          <button class="btn big" data-k="online" ${players.length >= minPlayers(s.type) && numsOk() ? '' : 'disabled'} title="Mit Spielern an anderen Orten – jeder an seinem Gerät">🌐 Online-Spiel</button></div>
+        <form id="rj" class="bbtns addrow room-join"><input id="rc" maxlength="8" placeholder="Raum-Code" aria-label="Raum-Code" autocomplete="off" style="text-transform:uppercase">
+          <button class="btn" type="submit">Online beitreten</button></form>
         ${manualNums() && !numsOk() && players.length ? '<p class="muted small">Jeder Spieler braucht eine eigene Zahl. Doppelte Zahl: nochmal werfen.</p>' : ''}</div>`;
       const f = main.querySelector('#pa');
       main.querySelector('#gt').onchange = e => { s.type = e.target.value; persist(); draw(); };
       const gv = main.querySelector('#gv'); if (gv) gv.onchange = e => { s.variant = e.target.value; persist(); draw(); };
       main.querySelectorAll('[data-knum]').forEach(el => el.onchange = () => { s.knums[el.dataset.knum] = el.value; persist(); draw(); });
       main.querySelectorAll('[data-opt]').forEach(el => el.onchange = () => { s.opts[s.type] = { ...opts(), [el.dataset.opt]: el.value }; persist(); draw(); });
+      main.querySelector('#rj').onsubmit = async e => { e.preventDefault(); const c = main.querySelector('#rc').value; if (!(await joinRoom(c))) alert('Raum nicht gefunden. Code prüfen.'); };
       f.onsubmit = e => { e.preventDefault(); const n = f.pn.value.trim(); if (n) { players.push(n); persist(); draw(); main.querySelector('#pn').focus(); } };
     };
     const persist = () => { s.players = players; store.set(KEY_SETUP, s); };
@@ -267,12 +357,16 @@ export function spielen(main) {
       else if (b.dataset.rm !== undefined) { players.splice(Number(b.dataset.rm), 1); persist(); draw(); }
       else if (b.dataset.up !== undefined) { const i = Number(b.dataset.up); [players[i - 1], players[i]] = [players[i], players[i - 1]]; persist(); draw(); }
       else if (b.dataset.k === 'shuffle') { for (let i = players.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [players[i], players[j]] = [players[j], players[i]]; } persist(); draw(); }
-      else if (b.dataset.k === 'start') { game = { type: s.type, variant: s.variant, opts: isCk(s.type) ? null : opts(), nums: manualNums() ? players.map(n => Number(s.knums[n])) : null, players: [...players], darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; play(); }
+      else if (b.dataset.k === 'start' || b.dataset.k === 'online') { if (b.dataset.k === 'start') leaveRoom(); const on = b.dataset.k === 'online'; game = { type: s.type, variant: s.variant, opts: isCk(s.type) ? null : opts(), nums: manualNums() ? players.map(n => Number(s.knums[n])) : null, players: [...players], darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; local(); mult = 1; if (on) createRoom(); else play(); }
     };
     draw();
   }
 
   function play() {
+    if (room && game && !room.picked) return pickView();
+    playInner(); decorate();
+  }
+  function playInner() {
     main.onclick = onPlay;
     if (fix !== null && !game.darts[fix]) fix = null;
     if (!isCk(game.type)) return playGeneric();
@@ -394,26 +488,30 @@ export function spielen(main) {
     }
     if (b.dataset.fix !== undefined) { const i = Number(b.dataset.fix); fix = fix === i ? null : i; return play(); }
     switch (b.dataset.k) {
-      case 'cam': case 'cam3': case 'adk':
+      case 'rshare': return shareLink();
+      case 'rpick': room.picked = false; return play();
+      case 'rleave': leaveRoom(); return play();
         if (camOn) { if (cam) cam.stop(); camOn = false; return play(); }
         camOn = true;
         cam = (b.dataset.k === 'adk' ? createAutodarts : createCamera)({ multi: b.dataset.k === 'cam3', targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
           onDart: (t, m, b) => { if (!game) return; const d = { t, m: t ? m : 0 }; if (b) { d.x = Math.round(b[0] * 10) / 10; d.y = Math.round(b[1] * 10) / 10; } enter(d, true); },
           onClose: () => { camOn = false; play(); }, onReady: () => { if (game) play(); } });
         cam.start(); return play();
-      case 'undo': game.darts.pop(); fix = null; save(); return play();
+      case 'undo': { if (room && game.darts.length && !room.mine.includes(curName({ ...game, darts: game.darts.slice(0, -1) }))) return; game.darts.pop(); fix = null; save(); return play(); }
       case 'fixno': fix = null; return play();
-      case 'next': { const st = isCk(game.type) ? replay(game) : run(game); for (let k = st.inVisit; k < 3; k++) game.darts.push({ t: 0, m: 0 }); save(); return play(); }
-      case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; game = null; fix = null; store.del(KEY); if (cam) cam.stop(); camOn = false; return setup();
+      case 'next': if (!myTurn()) return; { const st = isCk(game.type) ? replay(game) : run(game); for (let k = st.inVisit; k < 3; k++) game.darts.push({ t: 0, m: 0 }); save(); return play(); }
+      case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; leaveRoom(); game = null; fix = null; store.del(KEY); if (cam) cam.stop(); camOn = false; return setup();
       case 'rematch': {
         // Revanche: gleiche Spieler, der bisherige Startspieler rückt ans Ende
         const pl = [...game.players.slice(1), game.players[0]];
         const nums = game.nums ? [...game.nums.slice(1), game.nums[0]] : null;
         game = { ...game, players: pl, nums, darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; return play();
       }
-      case 'new': game = null; fix = null; store.del(KEY); if (cam) cam.stop(); camOn = false; return setup();
+      case 'new': leaveRoom(); game = null; fix = null; store.del(KEY); if (cam) cam.stop(); camOn = false; return setup();
     }
   };
-  if (game) play(); else setup();
-  return () => { if (cam) cam.stop(); main.onclick = null; document.body.classList.remove('play'); };
+  if (joinCode && (!room || room.code !== joinCode.toUpperCase())) { main.innerHTML = '<p class="muted pd">Online-Raum wird geladen …</p>';
+    joinRoom(joinCode).then(ok => { if (!ok) { main.innerHTML = '<p class="pd">Raum nicht gefunden oder abgelaufen.</p>'; setTimeout(() => { location.hash = '#spielen'; }, 2500); } }); }
+  else { if (room) { connectRoom(); pull(); } if (game) play(); else setup(); }
+  return () => { if (cam) cam.stop(); leaveChan(); main.onclick = null; document.body.classList.remove('play'); };
 }

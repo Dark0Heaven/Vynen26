@@ -33,6 +33,7 @@ function route() {
   main.onclick = null;
   if (h === 'anmelden') { cleanup = anmelden(main); return; }
   if (h === 'spielen') { cleanup = spielen(main); return; }
+  if (h.startsWith('spielen/')) { cleanup = spielen(main, h.slice(8)); return; }
   if (h === 'regeln') { cleanup = regeln(main); return; }
   if (h.startsWith('recap/')) { cleanup = recap(main, h.slice(6)); return; }
   if (h === 'sieger') { cleanup = sieger(main); return; }
