@@ -212,18 +212,26 @@ export function createCamera(opts) {
       if (motion < lim) v.noise = (v.noise || 0) * 0.9 + motion * 0.1; // Grundrauschen
       v.moving = motion > lim * 3;
       if (v.moving) v.sawMove = true;
+      v.unst = v.stable ? 0 : (v.unst || 0) + 1; // dauerhaft unruhige Kamera (Flackern) erkennen
     }
     if (bm) updBm();
     if (mode === 'pull') {
-      // Nach der Aufnahme: Board leer und ruhig – oder nach dem Ziehen (Bewegung) 2 s Ruhe
-      const ok = live.every(v => v.stable >= 3 && (v.empty ? diffCount(v, v.cur, v.empty, thr) : 0) < v.boardPix * 0.004)
-        || (live.some(v => v.sawMove) && live.every(v => v.stable >= 9));
+      // Nach der Aufnahme weiter, wenn das Board ruhig ist und das Bild wieder dem leeren Board gleicht
+      // (oder nach dem Ziehen deutlich mehr dem leeren Board als dem Board mit Darts).
+      const ok = live.every(v => {
+        if (v.stable < 4) return false;
+        const de = v.empty ? diffCount(v, v.cur, v.empty, thr) : 0;
+        if (de < v.boardPix * 0.004) return true;
+        const df = v.full ? diffCount(v, v.cur, v.full, thr) : 0;
+        return v.sawMove && de < v.boardPix * 0.02 && df > de * 2;
+      });
       if (ok && !tipAsk) { for (const v of live) { v.ref = v.cur; v.empty = v.cur; v.sawMove = false; } mode = 'watch'; msg = ''; visitTips = []; render(); }
       return;
     }
     // Mehrheit der Kameras muss ruhig sein (eine flackernde Kamera blockiert nicht mehr alles)
-    const calm = live.filter(v => v.stable >= 2);
-    if (proposal || !calm.length || calm.length < Math.ceil(live.length / 2) || live.some(v => v.moving)) return;
+    // Alle Kameras müssen ruhig sein – außer einer, die schon lange flackert (z. B. LED-Ring)
+    const calm = live.filter(v => v.stable >= 2), flicker = live.filter(v => v.stable < 2 && v.unst > 25);
+    if (proposal || !calm.length || calm.length + flicker.length < live.length) return;
     const cands = []; let busy = 0;
     for (const v of calm) {
       const mask = new Uint8Array(v.pw * v.ph);
@@ -291,7 +299,7 @@ export function createCamera(opts) {
     const { inVisit } = opts.visitInfo();
     if (mode === 'watch' && inVisit > 0) visitTips = visitTips.filter(t => t.k < inVisit); // Rückgängig
     if (inVisit === 0) last = '';
-    if (inVisit === 0 && lastVisit > 0) { mode = 'pull'; msg = 'Darts ziehen – danach geht es automatisch weiter.'; proposal = null; clearInterval(cdTimer); }
+    if (inVisit === 0 && lastVisit > 0) { for (const v of views) if (v.H) { v.full = grab(v); v.sawMove = false; } mode = 'pull'; msg = 'Darts ziehen – danach geht es automatisch weiter.'; proposal = null; clearInterval(cdTimer); }
     else if (mode === 'watch') { refAll(); for (const v of views) v.stable = 0; } // manuell getippt/korrigiert: aktuelles Bild als neue Referenz
     lastVisit = inVisit; render();
   }
