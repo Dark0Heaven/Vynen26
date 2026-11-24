@@ -1,6 +1,6 @@
 // Freies Spiel: Cricket und Tactics für beliebig viele Spieler, nur auf diesem Gerät (kein Login, keine Datenbank)
 import { esc, store } from './db.js';
-import { createCamera } from './camera.js';
+import { createCamera, apply as hApply, segmentAt } from './camera.js';
 const PC = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches; // Maus = PC/Laptop
 import { DEFS, run, optionsOf } from './games.js';
 
@@ -27,7 +27,7 @@ function gameSelect(cur) {
 export function replay(game) {
   const T = GAMES[game.type].targets;
   const P = game.players.map(name => ({ name, marks: Object.fromEntries(T.map(t => [t, 0])), pts: 0, darts: 0, hits: 0 }));
-  let cur = 0, inVisit = 0, winner = null, last = null, idx = 0;
+  let cur = 0, inVisit = 0, winner = null, last = null, idx = 0; const lastBy = {};
   const visit = [];
   for (const d of game.darts) {
     if (winner !== null) break;
@@ -46,12 +46,12 @@ export function replay(game) {
     }
     if (isWinner(game, P, cur)) { winner = cur; break; }
     inVisit++; idx++;
-    if (inVisit === 3) { last = { p: cur, s: idx - 3, e: idx }; inVisit = 0; cur = (cur + 1) % P.length; }
+    if (inVisit === 3) { last = { p: cur, s: idx - 3, e: idx }; lastBy[cur] = last; inVisit = 0; cur = (cur + 1) % P.length; }
   }
   // Würfe der laufenden Aufnahme für die Anzeige
   if (winner === null) for (let i = game.darts.length - inVisit; i < game.darts.length; i++) visit.push(game.darts[i]);
   const dead = new Set(T.filter(t => P.every(p => p.marks[t] >= 3)));
-  return { T, P, cur, inVisit, winner, visit, dead, last };
+  return { T, P, cur, inVisit, winner, visit, dead, last, lastBy };
 }
 
 function isWinner(game, P, i) {
@@ -131,16 +131,66 @@ export function spielen(main) {
       ${game.darts.slice(L.s, L.e).map((d, k) => `<button class="${fix === L.s + k ? 'sel' : ''}" data-fix="${L.s + k}" aria-label="Dart korrigieren">${dartTxt(d)}</button>`).join('')}
       ${ck ? '' : `<b>${vsum(game.darts.slice(L.s, L.e))}</b>`}</div>` : '';
     const fixHtml = fix !== null ? `<p class="play-fix" role="status">✎ Dart ${dartTxt(game.darts[fix])} korrigieren: richtiges Feld ${camOn ? 'auf der Scheibe' : 'unten'} antippen. <button class="btn sm" data-k="fixno">Abbrechen</button></p>` : '';
-    let board = '';
-    if (camOn) {
-      const from = S.inVisit ? game.darts.length - S.inVisit : L ? L.s : game.darts.length, to = S.inVisit ? game.darts.length : L ? L.e : from;
-      // Scheibe in der Mitte, Spieler links und rechts darum
-      const card = c => `<div class="pc ${c.on ? 'on' : ''} ${c.gone ? 'gone' : ''}"><b class="pc-n">${esc(c.name)}</b>${c.main !== '' ? `<div class="pc-main">${c.main}</div>` : ''}<div class="pc-sub">${c.sub}</div></div>`;
-      board = `<div class="play-arena"><div class="pa-side">${cards.filter((_, i) => i % 2 === 0).map(card).join('')}</div>
-        <div class="play-bd">${boardSvg(game.darts.slice(from, to).map((d, k) => [from + k, d]), fix)}</div>
-        <div class="pa-side">${cards.filter((_, i) => i % 2 === 1).map(card).join('')}</div></div>`;
-    }
+    const board = '';
     return lastHtml + fixHtml + board;
+  }
+  // ---------- Kamera-Ansicht (an Autodarts/Scolia angelehnt): Spieler oben, Live-Bild in der Mitte, Aufnahme rechts ----------
+  let liveK = store.get('vynen-live-k', 0), liveV = null;
+  const liveVids = new Map();
+  function adView(o) {
+    const S = o.S, from = S.inVisit ? game.darts.length - S.inVisit : S.last ? S.last.s : game.darts.length, to = S.inVisit ? game.darts.length : S.last ? S.last.e : from;
+    const cur = S.inVisit ? game.darts.slice(from, to) : [];
+    const lastTxt = L => L ? game.darts.slice(L.s, L.e).map(dartTxt).join(' ') + (o.ck ? '' : ` = ${vsum(game.darts.slice(L.s, L.e))}`) : '';
+    const vs = cam && cam.views || [];
+    const tabs = [...vs.map((v, k) => `<button class="${liveK === k ? 'on' : ''}" data-live="${k}">📷 ${vs.length > 1 ? k + 1 : 'Live'}</button>`), `<button class="${liveK === 'b' || !vs.length ? 'on' : ''}" data-live="b">🎯 Scheibe</button>`].join('');
+    const slots = [0, 1, 2].map(k => { const i = from + k, d = game.darts[i];
+      return d && i < to ? `<button class="ad-slot f ${fix === i ? 'sel' : ''}" data-fix="${i}" aria-label="Dart ${k + 1} korrigieren">${dartTxt(d)}</button>` : '<span class="ad-slot"></span>'; }).join('');
+    return `<div class="wrap play-g ad">
+      <div class="ad-players">${o.cards.map((c, i) => `<div class="ad-pc ${c.on ? 'on' : ''} ${c.gone ? 'gone' : ''}">
+        <div class="ad-pn">${esc(c.name)}</div><div class="ad-big">${c.main}</div>
+        <div class="ad-ps">${c.sub}</div>${S.lastBy && S.lastBy[i] ? `<div class="ad-pl"><small>Letzte</small> ${lastTxt(S.lastBy[i])}</div>` : ''}</div>`).join('')}</div>
+      <div class="ad-main">
+        <div class="ad-center"><div class="ad-tabs">${tabs}</div><div class="ad-live" data-livehost></div></div>
+        <div class="ad-side">
+          <div class="muted small">${esc(o.title)}</div>
+          <div class="ad-turn">${esc(S.P[S.cur].name)}</div>
+          <div class="ad-slots" aria-live="polite">${slots}</div>
+          <div class="ad-sum">${S.inVisit ? (o.ck ? '' : vsum(cur)) : S.last ? `<small>Letzte Aufnahme</small> ${lastTxt(S.last)}` : ''}</div>
+          ${o.info ? `<p class="play-info">${o.info}</p>` : ''}
+          ${fix !== null ? `<p class="play-fix" role="status">✎ ${dartTxt(game.darts[fix])} korrigieren: richtiges Feld im Bild oder auf der Scheibe antippen. <button class="btn sm" data-k="fixno">Abbrechen</button></p>` : '<p class="muted small">Falsch erkannt? Dart oben antippen, dann das richtige Feld.</p>'}
+          <div class="bbtns ad-act"><button class="btn" data-t="0">Fehlwurf</button><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
+            <button class="btn" data-k="next" ${S.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
+            <button class="btn on" data-k="cam">Kamera aus</button>
+            <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div>
+        </div></div></div>`;
+  }
+  // Live-Bild (eigenes <video> auf denselben Stream) mit Ringen und Darts; Tippen = Feld eintragen
+  function mountLive() {
+    const host = main.querySelector('[data-livehost]'); if (!host) return;
+    const S = isCk(game.type) ? replay(game) : run(game);
+    const from = S.inVisit ? game.darts.length - S.inVisit : S.last ? S.last.s : game.darts.length, to = S.inVisit ? game.darts.length : S.last ? S.last.e : from;
+    const list = game.darts.slice(from, to).map((d, k) => [from + k, d]);
+    const vs = cam && cam.views || [];
+    if (liveK === 'b' || !vs.length) { liveV = null; host.innerHTML = `<div class="play-bd">${boardSvg(list, fix)}</div>`; return; }
+    const v = vs[Math.min(liveK, vs.length - 1)]; liveV = v;
+    let el = liveVids.get(v.stream);
+    if (!el) { el = document.createElement('video'); el.muted = true; el.playsInline = true; el.autoplay = true; el.srcObject = v.stream; liveVids.set(v.stream, el); }
+    el.className = 'ad-vid'; host.appendChild(el); el.play().catch(() => {});
+    const oc = document.createElement('canvas'); oc.className = 'ad-ov'; host.appendChild(oc);
+    const draw = () => {
+      if (!el.videoWidth) return void setTimeout(draw, 150);
+      const W = host.clientWidth, Hh = host.clientHeight, r = el.videoWidth / el.videoHeight;
+      let w = W, h = W / r; if (h > Hh) { h = Hh; w = Hh * r; }
+      Object.assign(oc.style, { left: (W - w) / 2 + 'px', top: (Hh - h) / 2 + 'px', width: w + 'px', height: h + 'px' });
+      const cw = oc.width = Math.round(w * 2), ch = oc.height = Math.round(h * 2), c = oc.getContext('2d');
+      c.strokeStyle = 'rgba(0,255,140,.55)'; c.lineWidth = 2;
+      for (const rr of [170, 162, 107, 99, 15.9, 6.35]) { c.beginPath();
+        for (let a = 0; a <= 360; a += 5) { const [x, y] = hApply(v.Hinv, rr * Math.cos(a * Math.PI / 180), rr * Math.sin(a * Math.PI / 180)); a ? c.lineTo(x * cw, y * ch) : c.moveTo(x * cw, y * ch); } c.stroke(); }
+      list.forEach(([i, d], k) => { const p = dartPos(d); if (!p) return; const [x, y] = hApply(v.Hinv, p[0], -p[1]);
+        c.fillStyle = i === fix ? '#00e0ff' : '#ffcc00'; c.strokeStyle = '#000'; c.lineWidth = 3; c.beginPath(); c.arc(x * cw, y * ch, 22, 0, 7); c.fill(); c.stroke();
+        c.fillStyle = '#000'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center'; c.fillText(String(k + 1), x * cw, y * ch + 8); });
+    };
+    requestAnimationFrame(draw);
   }
   // Dart eintragen oder (im Korrekturmodus) ersetzen
   function enter(d, viaCam) {
@@ -210,6 +260,12 @@ export function spielen(main) {
     const st = replay(game), g = GAMES[game.type];
     if (st.winner !== null) return finish(st);
     const p = st.P[st.cur];
+    if (camOn) {
+      main.innerHTML = adView({ S: st, ck: true, title: `${g.name} · ${VARIANTS[game.variant]}`, info: '', cards: st.P.map((x, i) => ({ name: x.name, on: i === st.cur,
+        main: game.variant === 'none' ? `${st.T.filter(t => x.marks[t] >= 3).length}/${st.T.length}` : x.pts,
+        sub: st.T.map(t => `<span class="${st.dead.has(t) ? 'dead' : ''}"><small>${lbl(t)}</small>${markSym(x.marks[t])}</span>`).join('') })) });
+      mountLive(); if (cam && cam.active) cam.sync(); return;
+    }
     const rows = st.P.map((x, i) => `<tr class="${i === st.cur ? 'on' : ''}"><th scope="row"><span class="pn">${esc(x.name)}</span></th>
       ${game.variant === 'none' ? '' : `<td class="pts">${x.pts}</td>`}${st.T.map(t => `<td class="${st.dead.has(t) ? 'dead' : ''}">${markSym(x.marks[t])}</td>`).join('')}</tr>`).join('');
     main.innerHTML = `<div class="wrap play-g">
@@ -264,6 +320,12 @@ export function spielen(main) {
     const p = S.P[S.cur];
     const rows = S.P.map(x => `<tr class="${x.i === S.cur ? 'on' : ''} ${x.out ? 'gone' : ''}"><th scope="row"><span class="pn">${esc(x.name)}</span></th>${def.row(x, S).map(c => `<td>${c}</td>`).join('')}</tr>`).join('');
     const cols = typeof def.cols === 'function' ? def.cols(S) : def.cols;
+    if (camOn) {
+      main.innerHTML = adView({ S, ck: false, title: def.name, info: esc(def.info ? def.info(S) : '') + (S.note ? ` <span class="play-note" role="status">${esc(S.note)}</span>` : ''),
+        cards: S.P.map(x => { const c = def.row(x, S); let mi = c.findIndex(v => /class="big"/.test(String(v))); if (mi < 0) mi = 0;
+          return { name: x.name, on: x.i === S.cur, gone: x.out, main: c[mi], sub: cols.map((h, k) => k === mi ? '' : `<span><small>${h}</small> ${c[k]}</span>`).join('') }; }) });
+      mountLive(); if (cam && cam.active) cam.sync(); return;
+    }
     main.innerHTML = `<div class="wrap play-g">
       <div class="play-top"><div><span class="muted small">${esc(def.name)}</span>
         <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
@@ -287,6 +349,14 @@ export function spielen(main) {
 
   const onPlay = e => {
     if (!game) return;
+    const tab = e.target.closest('[data-live]');
+    if (tab) { liveK = tab.dataset.live === 'b' ? 'b' : Number(tab.dataset.live); store.set('vynen-live-k', liveK); return play(); }
+    const ov = e.target.closest('.ad-ov');
+    if (ov && liveV) {
+      const r = ov.getBoundingClientRect(), [bx, by] = hApply(liveV.H, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height), f = segmentAt(bx, by);
+      const T = isCk(game.type) ? GAMES[game.type].targets : ALL, t = f.s && T.includes(f.s) ? f.s : 0;
+      return enter({ t, m: t ? f.m : 0, x: Math.round(bx), y: Math.round(by) });
+    }
     const svg = e.target.closest('.bd-svg');
     if (svg) {
       const f = fieldAt(svg, e), T = isCk(game.type) ? GAMES[game.type].targets : ALL;
@@ -308,7 +378,7 @@ export function spielen(main) {
         camOn = true;
         cam = createCamera({ multi: b.dataset.k === 'cam3', targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
           onDart: (t, m, b) => { if (!game) return; const d = { t, m: t ? m : 0 }; if (b) { d.x = Math.round(b[0] * 10) / 10; d.y = Math.round(b[1] * 10) / 10; } enter(d, true); },
-          onClose: () => { camOn = false; play(); } });
+          onClose: () => { camOn = false; play(); }, onReady: () => { if (game) play(); } });
         cam.start(); return play();
       case 'undo': game.darts.pop(); fix = null; save(); return play();
       case 'fixno': fix = null; return play();

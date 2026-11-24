@@ -105,7 +105,7 @@ export function createCamera(opts) {
   const multi = !!opts.multi;
   let views = [], V = null; // V = Kamera, die gerade eingemessen/angezeigt wird
   let timer = null, mode = 'off', proposal = null, countdown = 0, cdTimer = null, auto = store.get('vynen-cam-auto', true);
-  let lastVisit = 0, last = '', msg = '', devices = [], pick = store.get(MKEY, []);
+  let announced = false, lastVisit = 0, last = '', lastDet = null, bm = false, thr = store.get('vynen-cam-thr', 30), msg = '', devices = [], pick = store.get(MKEY, []);
   // Trainingsfotos: alle Darts der laufenden Aufnahme mit Spitze (normiert) und Feld (nur mit einer Kamera)
   let collect = !multi && store.get('vynen-cam-collect', false), visitTips = [], tipAsk = null, sent = store.get('vynen-cam-sent', 0);
   const panel = document.createElement('div');
@@ -198,31 +198,48 @@ export function createCamera(opts) {
   }
   function resetRef(isEmpty) { for (const v of views) { if (!v.H) continue; v.ref = grab(v); v.prev = v.ref; if (isEmpty) v.empty = v.ref; v.stable = 0; } }
 
+  // Robuster als vorher: Rauschen (LED-Ring, Belichtung) pro Kamera mitlernen, Lichtwechsel abfangen,
+  // „Darts ziehen“ auch erkennen, wenn sich das Bild leicht verändert hat (Takeout = Bewegung, danach Ruhe).
   function tick() {
     if (mode !== 'watch' && mode !== 'pull') return;
+    if (!announced) { announced = true; opts.onReady && opts.onReady(); }
     const live = views.filter(v => v.H && v.ref);
     for (const v of live) {
       const cur = grab(v);
       const motion = v.prev ? diffCount(v, cur, v.prev, 22) : 0; v.prev = cur; v.cur = cur;
-      v.stable = motion < Math.max(6, v.boardPix * 0.002) ? v.stable + 1 : 0;
+      const lim = Math.max(6, v.boardPix * 0.002, (v.noise || 0) * 2.5);
+      v.stable = motion < lim ? v.stable + 1 : 0;
+      if (motion < lim) v.noise = (v.noise || 0) * 0.9 + motion * 0.1; // Grundrauschen
+      v.moving = motion > lim * 3;
+      if (v.moving) v.sawMove = true;
     }
+    if (bm) updBm();
     if (mode === 'pull') {
-      // Nach der Aufnahme: warten, bis das Board wieder leer und ruhig ist (auf allen Kameras)
-      const ok = live.every(v => v.stable >= 3 && (v.empty ? diffCount(v, v.cur, v.empty, 30) : 0) < v.boardPix * 0.004);
-      if (ok && !tipAsk) { for (const v of live) { v.ref = v.cur; v.empty = v.cur; } mode = 'watch'; msg = ''; visitTips = []; render(); }
+      // Nach der Aufnahme: Board leer und ruhig – oder nach dem Ziehen (Bewegung) 2 s Ruhe
+      const ok = live.every(v => v.stable >= 3 && (v.empty ? diffCount(v, v.cur, v.empty, thr) : 0) < v.boardPix * 0.004)
+        || (live.some(v => v.sawMove) && live.every(v => v.stable >= 9));
+      if (ok && !tipAsk) { for (const v of live) { v.ref = v.cur; v.empty = v.cur; v.sawMove = false; } mode = 'watch'; msg = ''; visitTips = []; render(); }
       return;
     }
-    if (proposal || live.some(v => v.stable < 2)) return;
-    const cands = []; let busy = false;
-    for (const v of live) {
+    // Mehrheit der Kameras muss ruhig sein (eine flackernde Kamera blockiert nicht mehr alles)
+    const calm = live.filter(v => v.stable >= 2);
+    if (proposal || !calm.length || calm.length < Math.ceil(live.length / 2) || live.some(v => v.moving)) return;
+    const cands = []; let busy = 0;
+    for (const v of calm) {
       const mask = new Uint8Array(v.pw * v.ph);
-      const n = diffCount(v, v.cur, v.ref, 30, mask);
+      const n = diffCount(v, v.cur, v.ref, thr, mask);
+      v.seen = '';
       if (n < 12) continue;
-      if (n > v.boardPix * 0.12) { busy = true; continue; }
+      if (n > v.boardPix * 0.12) {
+        // großflächig anders, aber ruhig = Licht/Belichtung hat sich geändert → neue Referenz
+        if (v.stable >= 6) { v.ref = v.cur; continue; }
+        busy++; continue;
+      }
       const blob = dartPixels(mask, v.pw, v.ph);
       if (blob.length < 10) { v.ref = v.cur; continue; }
-      const [tx, ty] = tipOf(blob);
-      cands.push({ v, tip: [tx / v.pw, ty / v.ph], b: apply(v.H, tx / v.pw, ty / v.ph) });
+      const [tx, ty] = tipOf(blob), b = apply(v.H, tx / v.pw, ty / v.ph);
+      v.seen = segmentAt(b[0], b[1]).label; v.tip = [tx / v.pw, ty / v.ph];
+      cands.push({ v, tip: v.tip, b });
     }
     if (!cands.length) { if (busy) { msg = 'Zu viel Bewegung vor dem Board …'; render(); } return; }
     const [bx, by] = fuse(cands.map(c => c.b));
@@ -231,6 +248,7 @@ export function createCamera(opts) {
     const main = cands.find(c => c.v === views[0]) || cands[0];
     proposal = { t: hit ? f.s : 0, m: hit ? f.m : 0, s: f.s, sm: f.m, label: f.label, game: hit ? f.label : `${f.label} → Fehlwurf`, tip: main.tip, b: [bx, by],
       frames: live.map(v => [v, v.cur]), seen: cands.length, of: live.length };
+    lastDet = { label: f.label, per: views.map(v => v.seen || '–') };
     msg = '';
     if (navigator.vibrate) try { navigator.vibrate(30); } catch {}
     if (auto) { last = proposal.game; accept(); return; } // sofort übernehmen; korrigieren über die Scheibe / Aufnahme
@@ -274,7 +292,7 @@ export function createCamera(opts) {
     if (mode === 'watch' && inVisit > 0) visitTips = visitTips.filter(t => t.k < inVisit); // Rückgängig
     if (inVisit === 0) last = '';
     if (inVisit === 0 && lastVisit > 0) { mode = 'pull'; msg = 'Darts ziehen – danach geht es automatisch weiter.'; proposal = null; clearInterval(cdTimer); }
-    else if (mode === 'watch') refAll(); // manuell getippt: aktuelles Bild als neue Referenz
+    else if (mode === 'watch') { refAll(); for (const v of views) v.stable = 0; } // manuell getippt/korrigiert: aktuelles Bild als neue Referenz
     lastVisit = inVisit; render();
   }
 
@@ -293,25 +311,54 @@ export function createCamera(opts) {
     panel.hidden = false;
     if (mode === 'error') { panel.innerHTML = `<div class="cam-bar"><span>${msg}</span><button class="btn sm" data-c="close">Schließen</button></div>`; return; }
     if (mode === 'choose') return renderChoose();
-    if (mode === 'calib') return renderCalib();
+    if (mode === 'calib') { announced = false; return renderCalib(); }
     if (tipAsk) return renderTipAsk();
-    const pr = proposal;
-    panel.className = 'cam-panel';
+    if (bm) return renderBm();
+    const pr = proposal, inV = opts.visitInfo().inVisit;
+    const st = pr ? 'hit' : mode === 'pull' ? 'pull' : msg ? 'warn' : 'ok';
+    panel.className = 'cam-panel slim';
     panel.innerHTML = `<div class="cam-bar">
-      ${views.map((v, k) => `<div class="cam-mini${multi ? ' m' : ''}" data-v="${k}" ${multi ? `title="${v.label.replace(/"/g, '')}"` : ''}></div>`).join('')}
+      <span class="cam-dot ${st}" aria-hidden="true"></span>
       <div class="cam-info">${pr ? `<span class="muted small">Erkannt${multi ? ` · ${pr.seen}/${pr.of} Kameras` : ''}</span><b class="cam-hit">${pr.game}</b>`
-        : mode === 'pull' ? `<span class="muted small">Kamera</span><b>${msg}</b>`
-        : `<span class="muted small">${multi ? `${views.length} Kameras` : 'Kamera'} (Beta) · ${['1.', '2.', '3.'][opts.visitInfo().inVisit] || ''} Dart</span><b>${msg || (last && opts.visitInfo().inVisit ? `Erkannt: ${last}` : 'Bereit – werfen!')}</b>`}</div>
-      <div class="cam-btns">${pr ? `<button class="btn pri" data-c="ok">✓ ${auto ? countdown : ''}</button><button class="btn" data-c="no">✕</button>`
-        : `<button class="btn sm" data-c="free">Board frei</button><button class="btn sm" data-c="calib">Einmessen</button>
+        : mode === 'pull' ? `<span class="muted small">Takeout</span><b>${msg}</b>`
+        : `<span class="muted small">${multi ? `${views.length} Kameras` : 'Kamera'} · ${['1.', '2.', '3.'][inV] || ''} Dart</span><b>${msg || (last && inV ? `Erkannt: ${last}` : 'Bereit – werfen!')}</b>`}</div>
+      <div class="cam-btns">${pr ? `<button class="btn pri" data-c="ok">✓</button><button class="btn" data-c="no">✕</button>`
+        : `<button class="btn sm" data-c="free" title="Board ist leer – Erkennung neu starten">Reset</button>
            <button class="btn sm ${auto ? 'on' : ''}" data-c="auto" aria-pressed="${auto}">Auto ${auto ? 'an' : 'aus'}</button>
-           ${multi ? '' : `<button class="btn sm ${collect ? 'on' : ''}" data-c="collect" aria-pressed="${collect}" title="Fotos fürs KI-Training sammeln">📸 ${collect ? sent : 'Sammeln'}</button>`}<button class="btn sm" data-c="close">Aus</button>`}</div></div>`;
-    panel.querySelectorAll('.cam-mini').forEach(mini => {
-      const v = views[+mini.dataset.v];
-      v.video.className = 'cam-video'; mini.appendChild(v.video); v.video.play().catch(() => {});
-      const oc = document.createElement('canvas'); oc.className = 'cam-ov'; mini.appendChild(oc);
-      drawOverlay(oc, pr && (multi ? (v.Hinv && apply(v.Hinv, pr.b[0], pr.b[1])) : pr.tip), v);
+           <button class="btn sm" data-c="bm">⚙ Board Manager</button><button class="btn sm" data-c="close">Aus</button>`}</div></div>`;
+  }
+  // Board Manager: alle Kameras live mit Ringen, Status und was jede Kamera zuletzt gesehen hat
+  function renderBm() {
+    panel.className = 'cam-panel full bm';
+    panel.innerHTML = `<div class="bm-wrap"><div class="bm-head"><b>Board Manager</b><span class="muted small" data-bm="state"></span>
+        <button class="btn sm" data-c="bmclose">Schließen</button></div>
+      <div class="bm-grid">${views.map((v, k) => `<div class="bm-cam"><div class="bm-vid" data-v="${k}"></div>
+        <div class="bm-cap"><b>${esc(v.label || `Kamera ${k + 1}`)}</b><span data-bm="s${k}"></span>
+          <button class="btn sm" data-c="calone" data-k="${k}">Einmessen</button></div></div>`).join('')}</div>
+      <div class="bm-foot">
+        <span data-bm="det" class="bm-det"></span>
+        <label class="inl-l">Empfindlichkeit <select data-c2="thr">${[[20, 'hoch'], [30, 'normal'], [45, 'niedrig']].map(([v, l]) => `<option value="${v}" ${thr === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <button class="btn sm" data-c="free">Reset (Board leer)</button>
+        <button class="btn sm" data-c="calib">Alle einmessen</button>
+        ${multi ? '<button class="btn sm" data-c="rechoose">Kameras wählen</button>' : `<button class="btn sm ${collect ? 'on' : ''}" data-c="collect" aria-pressed="${collect}" title="Fotos fürs KI-Training sammeln">📸 ${collect ? sent : 'Sammeln'}</button>`}
+      </div>
+      <p class="muted small bm-tip">Grün = ruhig, Gelb = Bewegung. Zählt eine Kamera oft falsch: neu einmessen oder Empfindlichkeit ändern. Bei „Darts ziehen“ hängt: Reset.</p></div>`;
+    panel.querySelectorAll('.bm-vid').forEach(el => {
+      const v = views[+el.dataset.v];
+      v.video.className = 'cam-video'; el.appendChild(v.video); v.video.play().catch(() => {});
+      const oc = document.createElement('canvas'); oc.className = 'cam-ov'; el.appendChild(oc); v.oc = oc;
+      requestAnimationFrame(() => drawOverlay(oc, v.seen && v.tip, v));
     });
+    panel.querySelector('[data-c2=thr]').onchange = e => { thr = Number(e.target.value); store.set('vynen-cam-thr', thr); };
+    updBm();
+  }
+  function updBm() {
+    const q = k => panel.querySelector(`[data-bm="${k}"]`); if (!q('state')) return;
+    q('state').textContent = mode === 'pull' ? 'Takeout – Darts ziehen' : 'Bereit';
+    views.forEach((v, k) => { const el = q('s' + k); if (!el) return;
+      el.className = 'bm-st ' + (!v.H ? 'off' : v.stable >= 2 ? 'ok' : 'mv');
+      el.textContent = !v.H ? 'nicht eingemessen' : `${v.stable >= 2 ? 'ruhig' : 'Bewegung'}${v.seen ? ` · sieht ${v.seen}` : ''}`; });
+    q('det').textContent = lastDet ? `Letzter Dart: ${lastDet.label} (${lastDet.per.map((x, k) => `K${k + 1}: ${x}`).join(', ')})` : '';
   }
   function drawOverlay(oc, tip, v = V) {
     const w = oc.width = oc.clientWidth * 2 || 240, h = oc.height = oc.clientHeight * 2 || 135, c = oc.getContext('2d');
@@ -433,7 +480,7 @@ export function createCamera(opts) {
     if (c === 'close') { stop(); opts.onClose && opts.onClose(); }
     if (c === 'ok') accept();
     if (c === 'no') reject();
-    if (c === 'free') { resetRef(true); mode = 'watch'; msg = ''; visitTips = []; render(); }
+    if (c === 'free') { resetRef(true); for (const v of views) v.sawMove = false; mode = 'watch'; msg = ''; visitTips = []; render(); }
     if (c === 'calib') { calAll = true; V = views[0]; calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
     if (c === 'recal') { calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
     if (c === 'calback') { calPts.pop(); render(); }
@@ -454,7 +501,13 @@ export function createCamera(opts) {
     if (c === 'auto') { auto = !auto; store.set('vynen-cam-auto', auto); render(); }
     if (c === 'collect') { collect = !collect; store.set('vynen-cam-collect', collect); msg = collect ? 'Sammeln an: Board-Fotos gehen an die Leitung (Personen bitte nicht ins Bild).' : ''; render(); }
     if (c === 'tipskip') { tipAsk = null; render(); }
+    if (c === 'bm') { bm = true; render(); }
+    if (c === 'bmclose') { bm = false; render(); }
+    if (c === 'calone') { calAll = false; V = views[+b.dataset.k]; calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
+    if (c === 'rechoose') { bm = false; clearInterval(timer); for (const v of views) v.stream.getTracks().forEach(t => t.stop()); views = []; startMulti(); }
   });
 
-  return { start, stop, sync, manual, clear() { last = ''; }, get active() { return mode !== 'off'; } };
+  return { start, stop, sync, manual, clear() { last = ''; }, get active() { return mode !== 'off'; },
+    // Für die Live-Ansicht im Spiel: Kameras mit Stream und Umrechnung
+    get views() { return views.filter(v => v.H).map(v => ({ stream: v.stream, label: v.label, H: v.H, Hinv: v.Hinv })); }, get ready() { return mode === 'watch' || mode === 'pull'; } };
 }

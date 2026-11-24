@@ -296,7 +296,7 @@ export function run(game) {
     def.dart(S, p, d);
     S.k++;
     if (S.winner !== null) { S.over = true; return; }
-    if (S.k === 3 || S.end) { S.last = { p: S.cur, s: vStart, e: idx + 1 }; endVisit(); vStart = idx + 1; }
+    if (S.k === 3 || S.end) { S.last = { p: S.cur, s: vStart, e: idx + 1 }; (S.lastBy = S.lastBy || {})[S.cur] = S.last; endVisit(); vStart = idx + 1; }
   });
   S.visit = S.over ? [] : game.darts.slice(vStart);
   S.inVisit = S.over ? 0 : S.k;
