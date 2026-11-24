@@ -473,6 +473,19 @@ body:not(.theme-bigfish){
 .play-last b{font-family:var(--num);font-size:20px;color:var(--gold);margin-left:4px}
 .play-fix{background:rgba(255,204,0,.12);border:1px solid var(--gold);border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .play-bd{display:flex;justify-content:center;margin:8px 0}
+.play-arena{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center;margin:8px 0}
+.pa-side{display:flex;flex-direction:column;gap:10px}
+.pc{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.pc.on{border-color:var(--red);box-shadow:0 0 0 3px rgba(225,20,35,.25);background:var(--panel2)}
+.pc.gone{opacity:.45}
+.pc-n{font-size:22px;text-transform:uppercase;letter-spacing:.02em}
+.pc.on .pc-n{color:var(--gold)}
+.pc-main{font-family:var(--num);font-size:46px;line-height:1}
+.pc-sub{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:15px}
+.pc-sub span{display:inline-flex;align-items:center;gap:4px}
+.pc-sub small{color:var(--muted);font-size:14px}
+.pc-sub .dead{opacity:.4}
+@media (max-width:760px){.play-arena{grid-template-columns:1fr 1fr}.play-arena .play-bd{grid-column:1/-1;grid-row:1}.pc-main{font-size:34px}.pc-n{font-size:18px}}
 .bd-svg{width:min(420px,88vw);height:auto;cursor:crosshair;touch-action:manipulation}
 .bd-svg text{font-family:var(--num);pointer-events:none}
 .bd-dart circle{fill:#ffcc00;stroke:#000;stroke-width:2}

@@ -125,16 +125,20 @@ export function spielen(main) {
 
   const save = () => store.set(KEY, game);
   // Letzte Aufnahme (antippbar zum Korrigieren), Korrektur-Hinweis und bei Kamera die Scheibe
-  function extras(S) {
+  function extras(S, cards) {
     const L = S.last, ck = isCk(game.type);
     const lastHtml = L ? `<div class="play-last"><span class="muted small">Letzte Aufnahme · ${esc(S.P[L.p].name)}</span>
       ${game.darts.slice(L.s, L.e).map((d, k) => `<button class="${fix === L.s + k ? 'sel' : ''}" data-fix="${L.s + k}" aria-label="Dart korrigieren">${dartTxt(d)}</button>`).join('')}
       ${ck ? '' : `<b>${vsum(game.darts.slice(L.s, L.e))}</b>`}</div>` : '';
-    const fixHtml = fix !== null ? `<p class="play-fix" role="status">✎ Dart ${dartTxt(game.darts[fix])} korrigieren: richtiges Feld ${camOn ? 'auf der Scheibe oder ' : ''}unten antippen. <button class="btn sm" data-k="fixno">Abbrechen</button></p>` : '';
+    const fixHtml = fix !== null ? `<p class="play-fix" role="status">✎ Dart ${dartTxt(game.darts[fix])} korrigieren: richtiges Feld ${camOn ? 'auf der Scheibe' : 'unten'} antippen. <button class="btn sm" data-k="fixno">Abbrechen</button></p>` : '';
     let board = '';
     if (camOn) {
       const from = S.inVisit ? game.darts.length - S.inVisit : L ? L.s : game.darts.length, to = S.inVisit ? game.darts.length : L ? L.e : from;
-      board = `<div class="play-bd">${boardSvg(game.darts.slice(from, to).map((d, k) => [from + k, d]), fix)}</div>`;
+      // Scheibe in der Mitte, Spieler links und rechts darum
+      const card = c => `<div class="pc ${c.on ? 'on' : ''} ${c.gone ? 'gone' : ''}"><b class="pc-n">${esc(c.name)}</b>${c.main !== '' ? `<div class="pc-main">${c.main}</div>` : ''}<div class="pc-sub">${c.sub}</div></div>`;
+      board = `<div class="play-arena"><div class="pa-side">${cards.filter((_, i) => i % 2 === 0).map(card).join('')}</div>
+        <div class="play-bd">${boardSvg(game.darts.slice(from, to).map((d, k) => [from + k, d]), fix)}</div>
+        <div class="pa-side">${cards.filter((_, i) => i % 2 === 1).map(card).join('')}</div></div>`;
     }
     return lastHtml + fixHtml + board;
   }
@@ -212,16 +216,17 @@ export function spielen(main) {
       <div class="play-top"><div><span class="muted small">${g.name} · ${VARIANTS[game.variant]}</span>
         <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
         <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => st.visit[k] ? `<button class="f ${fix === game.darts.length - st.inVisit + k ? 'sel' : ''}" data-fix="${game.darts.length - st.inVisit + k}" aria-label="Dart ${k + 1} korrigieren">${dartTxt(st.visit[k])}</button>` : '<span></span>').join('')}</div></div>
-      ${extras(st)}
-      <div class="tbl-scroll play-board"><table class="tbl ck"><thead><tr><th>Spieler</th>${game.variant === 'none' ? '' : '<th>Pkt</th>'}
-        ${st.T.map(t => `<th class="${st.dead.has(t) ? 'dead' : ''}">${lbl(t)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
-      <div class="play-pad">
+      ${extras(st, st.P.map((x, i) => ({ name: x.name, on: i === st.cur, main: game.variant === 'none' ? '' : x.pts,
+        sub: st.T.map(t => `<span class="${st.dead.has(t) ? 'dead' : ''}"><small>${lbl(t)}</small>${markSym(x.marks[t])}</span>`).join('') })))}
+      ${camOn ? '' : `<div class="tbl-scroll play-board"><table class="tbl ck"><thead><tr><th>Spieler</th>${game.variant === 'none' ? '' : '<th>Pkt</th>'}
+        ${st.T.map(t => `<th class="${st.dead.has(t) ? 'dead' : ''}">${lbl(t)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`}
+      <div class="play-pad">${camOn ? '' : `
         <div class="seg mult" role="radiogroup" aria-label="Multiplikator">${[1, 2, 3].map(m => `<button data-m="${m}" class="${mult === m ? 'on' : ''}" role="radio" aria-checked="${mult === m}">${['', 'Single', 'Double', 'Triple'][m]}</button>`).join('')}</div>
         <div class="tg ${st.T.length > 7 ? 'many' : ''}">${st.T.map(t => {
           const mine = p.marks[t] >= 3, off = (t === 25 && mult === 3);
           return `<button data-t="${t}" class="${st.dead.has(t) ? 'dead' : mine ? 'mine' : ''}" ${off ? 'disabled' : ''}>${lbl(t)}</button>`; }).join('')}
-          <button data-t="0" class="miss">Fehlwurf</button></div>
-        <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
+          <button data-t="0" class="miss">Fehlwurf</button></div>`}
+        <div class="bbtns play-act">${camOn ? '<button class="btn" data-t="0">Fehlwurf</button>' : ''}<button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
           <button class="btn" data-k="next" ${st.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
           ${navigator.mediaDevices ? `<button class="btn ${camOn ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
           ${navigator.mediaDevices && PC && !camOn ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
@@ -244,11 +249,11 @@ export function spielen(main) {
   }
 
   // ---------- Alle anderen Spiele (games.js) ----------
-  const pad = (hl, p) => `<div class="play-pad">
+  const pad = (hl, p) => `<div class="play-pad">${camOn ? '' : `
         <div class="seg mult" role="radiogroup" aria-label="Multiplikator">${[1, 2, 3].map(m => `<button data-m="${m}" class="${mult === m ? 'on' : ''}" role="radio" aria-checked="${mult === m}">${['', 'Single', 'Double', 'Triple'][m]}</button>`).join('')}</div>
         <div class="tg all">${ALL.map(t => `<button data-t="${t}" class="${hl.includes(t) ? 'mine' : ''}" ${t === 25 && mult === 3 ? 'disabled' : ''}>${lbl(t)}</button>`).join('')}
-          <button data-t="0" class="miss">Fehlwurf</button></div>
-        <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
+          <button data-t="0" class="miss">Fehlwurf</button></div>`}
+        <div class="bbtns play-act">${camOn ? '<button class="btn" data-t="0">Fehlwurf</button>' : ''}<button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
           <button class="btn" data-k="next" ${p.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
           ${navigator.mediaDevices ? `<button class="btn ${camOn ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
           ${navigator.mediaDevices && PC && !camOn ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
@@ -263,9 +268,10 @@ export function spielen(main) {
       <div class="play-top"><div><span class="muted small">${esc(def.name)}</span>
         <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
         <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => S.visit[k] ? `<button class="f ${fix === game.darts.length - S.inVisit + k ? 'sel' : ''}" data-fix="${game.darts.length - S.inVisit + k}" aria-label="Dart ${k + 1} korrigieren">${dartTxt(S.visit[k])}</button>` : '<span></span>').join('')}</div></div>
-      ${extras(S)}
       <p class="play-info">${esc(def.info ? def.info(S) : '')}${S.note ? ` <span class="play-note" role="status">${esc(S.note)}</span>` : ''}</p>
-      <div class="tbl-scroll play-board"><table class="tbl ck gen"><thead><tr><th>Spieler</th>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+      ${extras(S, S.P.map(x => { const c = def.row(x, S); return { name: x.name, on: x.i === S.cur, gone: x.out, main: c[0],
+        sub: cols.slice(1).map((h, k) => `<span><small>${h}</small>${c[k + 1]}</span>`).join('') }; }))}
+      ${camOn ? '' : `<div class="tbl-scroll play-board"><table class="tbl ck gen"><thead><tr><th>Spieler</th>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`}
       ${pad(def.highlight ? def.highlight(S) : [], S)}</div>`;
     if (cam && cam.active) cam.sync();
   }
