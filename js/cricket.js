@@ -27,7 +27,7 @@ function gameSelect(cur) {
 export function replay(game) {
   const T = GAMES[game.type].targets;
   const P = game.players.map(name => ({ name, marks: Object.fromEntries(T.map(t => [t, 0])), pts: 0, darts: 0, hits: 0 }));
-  let cur = 0, inVisit = 0, winner = null;
+  let cur = 0, inVisit = 0, winner = null, last = null, idx = 0;
   const visit = [];
   for (const d of game.darts) {
     if (winner !== null) break;
@@ -45,13 +45,13 @@ export function replay(game) {
       }
     }
     if (isWinner(game, P, cur)) { winner = cur; break; }
-    inVisit++;
-    if (inVisit === 3) { inVisit = 0; cur = (cur + 1) % P.length; }
+    inVisit++; idx++;
+    if (inVisit === 3) { last = { p: cur, s: idx - 3, e: idx }; inVisit = 0; cur = (cur + 1) % P.length; }
   }
   // Würfe der laufenden Aufnahme für die Anzeige
   if (winner === null) for (let i = game.darts.length - inVisit; i < game.darts.length; i++) visit.push(game.darts[i]);
   const dead = new Set(T.filter(t => P.every(p => p.marks[t] >= 3)));
-  return { T, P, cur, inVisit, winner, visit, dead };
+  return { T, P, cur, inVisit, winner, visit, dead, last };
 }
 
 function isWinner(game, P, i) {
@@ -70,15 +70,82 @@ function ranking(game, st) {
 }
 
 const dartTxt = d => !d.t ? '–' : d.t === 25 ? (d.m >= 2 ? 'Bull' : '25') : ['', 'S', 'D', 'T'][d.m] + d.t;
+// ---------- Scheibe (bei Kamera) und Aufnahmen ----------
+const SEG = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
+const pt = (r, deg) => [r * Math.sin(deg * Math.PI / 180), -r * Math.cos(deg * Math.PI / 180)];
+function wedge(r0, r1, a0, a1) {
+  const [x0, y0] = pt(r1, a0), [x1, y1] = pt(r1, a1), [x2, y2] = pt(r0, a1), [x3, y3] = pt(r0, a0);
+  return `M${x0.toFixed(1)} ${y0.toFixed(1)}A${r1} ${r1} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}L${x2.toFixed(1)} ${y2.toFixed(1)}A${r0} ${r0} 0 0 0 ${x3.toFixed(1)} ${y3.toFixed(1)}Z`;
+}
+let BOARD = '';
+function boardBase() {
+  if (BOARD) return BOARD;
+  let g = '<circle r="200" fill="#151518"/>';
+  SEG.forEach((n, i) => {
+    const a0 = i * 18 - 9, a1 = i * 18 + 9, dark = i % 2 === 0;
+    g += `<path d="${wedge(107, 162, a0, a1)}" fill="${dark ? '#1b1b1b' : '#e9dfc4'}"/><path d="${wedge(15.9, 99, a0, a1)}" fill="${dark ? '#1b1b1b' : '#e9dfc4'}"/>`
+      + `<path d="${wedge(162, 170, a0, a1)}" fill="${dark ? '#d1202f' : '#1f8a4c'}"/><path d="${wedge(99, 107, a0, a1)}" fill="${dark ? '#d1202f' : '#1f8a4c'}"/>`;
+    const [x, y] = pt(185, i * 18);
+    g += `<text x="${x.toFixed(1)}" y="${(y + 6).toFixed(1)}" text-anchor="middle" font-size="17" fill="#fff" font-family="inherit">${n}</text>`;
+  });
+  g += '<circle r="15.9" fill="#1f8a4c"/><circle r="6.35" fill="#d1202f"/>';
+  return (BOARD = g);
+}
+// Position eines Darts: von der Kamera (x/y in mm) oder Feldmitte
+function dartPos(d) {
+  if (d.x !== undefined) return [d.x, -d.y];
+  if (!d.t) return null;
+  if (d.t === 25) return d.m >= 2 ? [0, 0] : [0, -11];
+  return pt(d.m === 3 ? 103 : d.m === 2 ? 166 : 135, SEG.indexOf(d.t) * 18);
+}
+function boardSvg(list, fix) {
+  const dots = list.map(([i, d], k) => { const p = dartPos(d); if (!p) return '';
+    return `<g class="bd-dart ${i === fix ? 'sel' : ''}"><circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="9"/><text x="${p[0].toFixed(1)}" y="${(p[1] + 4.5).toFixed(1)}" text-anchor="middle" font-size="12">${k + 1}</text></g>`; }).join('');
+  return `<svg class="bd-svg" viewBox="-200 -200 400 400" role="img" aria-label="Dartscheibe – antippen trägt das Feld ein">${boardBase()}${dots}</svg>`;
+}
+// Feld aus Klick auf die Scheibe
+function fieldAt(svg, e) {
+  const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 400 - 200, y = (e.clientY - r.top) / r.height * 400 - 200;
+  const rr = Math.hypot(x, y);
+  if (rr > 170) return { t: 0, m: 0, x, y: -y };
+  if (rr <= 6.35) return { t: 25, m: 2, x, y: -y };
+  if (rr <= 15.9) return { t: 25, m: 1, x, y: -y };
+  const a = ((Math.atan2(x, -y) * 180 / Math.PI) % 360 + 360) % 360;
+  return { t: SEG[Math.floor((a + 9) / 18) % 20], m: rr >= 99 && rr <= 107 ? 3 : rr >= 162 ? 2 : 1, x, y: -y };
+}
+const vsum = ds => ds.reduce((a, d) => a + (d.t || 0) * (d.m || 0), 0);
+
 const markSym = n => n >= 3 ? '<span class="mk m3" aria-label="zu">ⓧ</span>' : n === 2 ? '<span class="mk m2" aria-label="2 Treffer">✕</span>'
   : n === 1 ? '<span class="mk m1" aria-label="1 Treffer">╱</span>' : '<span class="mk m0"></span>';
 
 // ---------- Ansicht ----------
 export function spielen(main) {
-  let game = store.get(KEY, null), mult = 1, sure = '', cam = null;
+  let game = store.get(KEY, null), mult = 1, sure = '', cam = null, camOn = false, fix = null;
   document.body.classList.add('play');
 
   const save = () => store.set(KEY, game);
+  // Letzte Aufnahme (antippbar zum Korrigieren), Korrektur-Hinweis und bei Kamera die Scheibe
+  function extras(S) {
+    const L = S.last, ck = isCk(game.type);
+    const lastHtml = L ? `<div class="play-last"><span class="muted small">Letzte Aufnahme · ${esc(S.P[L.p].name)}</span>
+      ${game.darts.slice(L.s, L.e).map((d, k) => `<button class="${fix === L.s + k ? 'sel' : ''}" data-fix="${L.s + k}" aria-label="Dart korrigieren">${dartTxt(d)}</button>`).join('')}
+      ${ck ? '' : `<b>${vsum(game.darts.slice(L.s, L.e))}</b>`}</div>` : '';
+    const fixHtml = fix !== null ? `<p class="play-fix" role="status">✎ Dart ${dartTxt(game.darts[fix])} korrigieren: richtiges Feld ${camOn ? 'auf der Scheibe oder ' : ''}unten antippen. <button class="btn sm" data-k="fixno">Abbrechen</button></p>` : '';
+    let board = '';
+    if (camOn) {
+      const from = S.inVisit ? game.darts.length - S.inVisit : L ? L.s : game.darts.length, to = S.inVisit ? game.darts.length : L ? L.e : from;
+      board = `<div class="play-bd">${boardSvg(game.darts.slice(from, to).map((d, k) => [from + k, d]), fix)}</div>`;
+    }
+    return lastHtml + fixHtml + board;
+  }
+  // Dart eintragen oder (im Korrekturmodus) ersetzen
+  function enter(d, viaCam) {
+    if (fix !== null && game.darts[fix]) { game.darts[fix] = d; fix = null; save(); if (cam && cam.active) cam.clear(); return play(); }
+    game.darts.push(d); mult = 1; save();
+    if (!viaCam && cam && cam.active) cam.manual();
+    if (navigator.vibrate) try { navigator.vibrate(15); } catch {}
+    return play();
+  }
 
   function setup() {
     const s = store.get(KEY_SETUP, { type: 'cricket', variant: 'std', players: [] });
@@ -134,6 +201,7 @@ export function spielen(main) {
 
   function play() {
     main.onclick = onPlay;
+    if (fix !== null && !game.darts[fix]) fix = null;
     if (!isCk(game.type)) return playGeneric();
     const st = replay(game), g = GAMES[game.type];
     if (st.winner !== null) return finish(st);
@@ -143,7 +211,8 @@ export function spielen(main) {
     main.innerHTML = `<div class="wrap play-g">
       <div class="play-top"><div><span class="muted small">${g.name} · ${VARIANTS[game.variant]}</span>
         <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
-        <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => `<span class="${st.visit[k] ? 'f' : ''}">${st.visit[k] ? dartTxt(st.visit[k]) : ''}</span>`).join('')}</div></div>
+        <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => st.visit[k] ? `<button class="f ${fix === game.darts.length - st.inVisit + k ? 'sel' : ''}" data-fix="${game.darts.length - st.inVisit + k}" aria-label="Dart ${k + 1} korrigieren">${dartTxt(st.visit[k])}</button>` : '<span></span>').join('')}</div></div>
+      ${extras(st)}
       <div class="tbl-scroll play-board"><table class="tbl ck"><thead><tr><th>Spieler</th>${game.variant === 'none' ? '' : '<th>Pkt</th>'}
         ${st.T.map(t => `<th class="${st.dead.has(t) ? 'dead' : ''}">${lbl(t)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
       <div class="play-pad">
@@ -154,8 +223,8 @@ export function spielen(main) {
           <button data-t="0" class="miss">Fehlwurf</button></div>
         <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
           <button class="btn" data-k="next" ${st.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
-          ${navigator.mediaDevices ? `<button class="btn ${cam && cam.active ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
-          ${navigator.mediaDevices && PC && !(cam && cam.active) ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
+          ${navigator.mediaDevices ? `<button class="btn ${camOn ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
+          ${navigator.mediaDevices && PC && !camOn ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
           <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div>
       </div></div>`;
     if (cam && cam.active) cam.sync();
@@ -181,8 +250,8 @@ export function spielen(main) {
           <button data-t="0" class="miss">Fehlwurf</button></div>
         <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
           <button class="btn" data-k="next" ${p.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
-          ${navigator.mediaDevices ? `<button class="btn ${cam && cam.active ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
-          ${navigator.mediaDevices && PC && !(cam && cam.active) ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
+          ${navigator.mediaDevices ? `<button class="btn ${camOn ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
+          ${navigator.mediaDevices && PC && !camOn ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
           <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div></div>`;
   function playGeneric() {
     const def = DEFS[game.type], S = run(game);
@@ -193,7 +262,8 @@ export function spielen(main) {
     main.innerHTML = `<div class="wrap play-g">
       <div class="play-top"><div><span class="muted small">${esc(def.name)}</span>
         <h2 class="play-turn">${esc(p.name)} <span class="muted">ist dran</span></h2></div>
-        <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => `<span class="${S.visit[k] ? 'f' : ''}">${S.visit[k] ? dartTxt(S.visit[k]) : ''}</span>`).join('')}</div></div>
+        <div class="play-visit" aria-live="polite">${[0, 1, 2].map(k => S.visit[k] ? `<button class="f ${fix === game.darts.length - S.inVisit + k ? 'sel' : ''}" data-fix="${game.darts.length - S.inVisit + k}" aria-label="Dart ${k + 1} korrigieren">${dartTxt(S.visit[k])}</button>` : '<span></span>').join('')}</div></div>
+      ${extras(S)}
       <p class="play-info">${esc(def.info ? def.info(S) : '')}${S.note ? ` <span class="play-note" role="status">${esc(S.note)}</span>` : ''}</p>
       <div class="tbl-scroll play-board"><table class="tbl ck gen"><thead><tr><th>Spieler</th>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
       ${pad(def.highlight ? def.highlight(S) : [], S)}</div>`;
@@ -211,32 +281,40 @@ export function spielen(main) {
 
   const onPlay = e => {
     if (!game) return;
+    const svg = e.target.closest('.bd-svg');
+    if (svg) {
+      const f = fieldAt(svg, e), T = isCk(game.type) ? GAMES[game.type].targets : ALL;
+      const d = { t: f.t && T.includes(f.t) ? f.t : 0, m: 0, x: Math.round(f.x), y: Math.round(f.y) }; d.m = d.t ? f.m : 0;
+      return enter(d);
+    }
     const b = e.target.closest('button'); if (!b || b.disabled) return;
     if (b.dataset.k !== 'quit') sure = '';
     if (b.dataset.m) { mult = Number(b.dataset.m); return play(); }
     if (b.dataset.t !== undefined) {
       const t = Number(b.dataset.t);
-      game.darts.push({ t, m: t ? mult : 0 }); mult = 1; save();
-      if (cam && cam.active) cam.manual();
-      if (navigator.vibrate) try { navigator.vibrate(15); } catch {}
-      return play();
+      const m = t ? mult : 0; mult = 1;
+      return enter({ t, m });
     }
+    if (b.dataset.fix !== undefined) { const i = Number(b.dataset.fix); fix = fix === i ? null : i; return play(); }
     switch (b.dataset.k) {
       case 'cam': case 'cam3':
-        if (cam && cam.active) { cam.stop(); return play(); }
+        if (camOn) { if (cam) cam.stop(); camOn = false; return play(); }
+        camOn = true;
         cam = createCamera({ multi: b.dataset.k === 'cam3', targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
-          onDart: (t, m) => { if (!game) return; game.darts.push({ t, m: t ? m : 0 }); mult = 1; save(); play(); }, onClose: () => play() });
+          onDart: (t, m, b) => { if (!game) return; const d = { t, m: t ? m : 0 }; if (b) { d.x = Math.round(b[0] * 10) / 10; d.y = Math.round(b[1] * 10) / 10; } enter(d, true); },
+          onClose: () => { camOn = false; play(); } });
         cam.start(); return play();
-      case 'undo': game.darts.pop(); save(); return play();
+      case 'undo': game.darts.pop(); fix = null; save(); return play();
+      case 'fixno': fix = null; return play();
       case 'next': { const st = isCk(game.type) ? replay(game) : run(game); for (let k = st.inVisit; k < 3; k++) game.darts.push({ t: 0, m: 0 }); save(); return play(); }
-      case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; game = null; store.del(KEY); if (cam) cam.stop(); return setup();
+      case 'quit': if (sure !== 'quit') { sure = 'quit'; return play(); } sure = ''; game = null; fix = null; store.del(KEY); if (cam) cam.stop(); camOn = false; return setup();
       case 'rematch': {
         // Revanche: gleiche Spieler, der bisherige Startspieler rückt ans Ende
         const pl = [...game.players.slice(1), game.players[0]];
         const nums = game.nums ? [...game.nums.slice(1), game.nums[0]] : null;
         game = { ...game, players: pl, nums, darts: [], started: Date.now(), seed: (Math.random() * 1e9) | 0 }; save(); mult = 1; return play();
       }
-      case 'new': game = null; store.del(KEY); if (cam) cam.stop(); return setup();
+      case 'new': game = null; fix = null; store.del(KEY); if (cam) cam.stop(); camOn = false; return setup();
     }
   };
   if (game) play(); else setup();

@@ -105,7 +105,7 @@ export function createCamera(opts) {
   const multi = !!opts.multi;
   let views = [], V = null; // V = Kamera, die gerade eingemessen/angezeigt wird
   let timer = null, mode = 'off', proposal = null, countdown = 0, cdTimer = null, auto = store.get('vynen-cam-auto', true);
-  let lastVisit = 0, msg = '', devices = [], pick = store.get(MKEY, []);
+  let lastVisit = 0, last = '', msg = '', devices = [], pick = store.get(MKEY, []);
   // Trainingsfotos: alle Darts der laufenden Aufnahme mit Spitze (normiert) und Feld (nur mit einer Kamera)
   let collect = !multi && store.get('vynen-cam-collect', false), visitTips = [], tipAsk = null, sent = store.get('vynen-cam-sent', 0);
   const panel = document.createElement('div');
@@ -232,15 +232,15 @@ export function createCamera(opts) {
     proposal = { t: hit ? f.s : 0, m: hit ? f.m : 0, s: f.s, sm: f.m, label: f.label, game: hit ? f.label : `${f.label} → Fehlwurf`, tip: main.tip, b: [bx, by],
       frames: live.map(v => [v, v.cur]), seen: cands.length, of: live.length };
     msg = '';
-    if (auto) { countdown = 3; clearInterval(cdTimer); cdTimer = setInterval(() => { countdown--; if (countdown <= 0) accept(); else render(); }, 1000); }
     if (navigator.vibrate) try { navigator.vibrate(30); } catch {}
+    if (auto) { last = proposal.game; accept(); return; } // sofort übernehmen; korrigieren über die Scheibe / Aufnahme
     render();
   }
   function accept() {
     clearInterval(cdTimer); if (!proposal) return;
     const p = proposal; proposal = null; for (const [v, fr] of p.frames) v.ref = fr;
     if (p.s && !multi) { visitTips.push({ k: opts.visitInfo().inVisit, x: +p.tip[0].toFixed(4), y: +p.tip[1].toFixed(4), s: p.s, m: p.sm, src: 'auto' }); if (collect) upload(); }
-    opts.onDart(p.t, p.m);
+    opts.onDart(p.t, p.m, p.b);
   }
   const refAll = () => { for (const v of views) if (v.H) v.ref = grab(v); };
   // Foto + Beschriftung hochladen (ohne Login; Fehler werden still ignoriert)
@@ -272,6 +272,7 @@ export function createCamera(opts) {
     if (!views.length || mode === 'calib' || mode === 'off' || mode === 'choose') return;
     const { inVisit } = opts.visitInfo();
     if (mode === 'watch' && inVisit > 0) visitTips = visitTips.filter(t => t.k < inVisit); // Rückgängig
+    if (inVisit === 0) last = '';
     if (inVisit === 0 && lastVisit > 0) { mode = 'pull'; msg = 'Darts ziehen – danach geht es automatisch weiter.'; proposal = null; clearInterval(cdTimer); }
     else if (mode === 'watch') refAll(); // manuell getippt: aktuelles Bild als neue Referenz
     lastVisit = inVisit; render();
@@ -300,7 +301,7 @@ export function createCamera(opts) {
       ${views.map((v, k) => `<div class="cam-mini${multi ? ' m' : ''}" data-v="${k}" ${multi ? `title="${v.label.replace(/"/g, '')}"` : ''}></div>`).join('')}
       <div class="cam-info">${pr ? `<span class="muted small">Erkannt${multi ? ` · ${pr.seen}/${pr.of} Kameras` : ''}</span><b class="cam-hit">${pr.game}</b>`
         : mode === 'pull' ? `<span class="muted small">Kamera</span><b>${msg}</b>`
-        : `<span class="muted small">${multi ? `${views.length} Kameras` : 'Kamera'} (Beta) · ${['1.', '2.', '3.'][opts.visitInfo().inVisit] || ''} Dart</span><b>${msg || 'Bereit – werfen!'}</b>`}</div>
+        : `<span class="muted small">${multi ? `${views.length} Kameras` : 'Kamera'} (Beta) · ${['1.', '2.', '3.'][opts.visitInfo().inVisit] || ''} Dart</span><b>${msg || (last && opts.visitInfo().inVisit ? `Erkannt: ${last}` : 'Bereit – werfen!')}</b>`}</div>
       <div class="cam-btns">${pr ? `<button class="btn pri" data-c="ok">✓ ${auto ? countdown : ''}</button><button class="btn" data-c="no">✕</button>`
         : `<button class="btn sm" data-c="free">Board frei</button><button class="btn sm" data-c="calib">Einmessen</button>
            <button class="btn sm ${auto ? 'on' : ''}" data-c="auto" aria-pressed="${auto}">Auto ${auto ? 'an' : 'aus'}</button>
@@ -455,5 +456,5 @@ export function createCamera(opts) {
     if (c === 'tipskip') { tipAsk = null; render(); }
   });
 
-  return { start, stop, sync, manual, get active() { return mode !== 'off'; } };
+  return { start, stop, sync, manual, clear() { last = ''; }, get active() { return mode !== 'off'; } };
 }
