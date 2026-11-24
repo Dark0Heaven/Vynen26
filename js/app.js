@@ -216,3 +216,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMore();
 watchTheme();
 route();
 if (!store.get('vynen-tablet', false)) startWatch();
+// Link aus „Passwort vergessen“-Mail: zur Leitung und neues Passwort abfragen
+sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') { store.set('vynen-recovery', true); if (location.hash !== '#admin') location.hash = '#admin'; else route(); } });
+if (/[?&]reset=1/.test(location.search) || /type=recovery/.test(location.hash)) store.set('vynen-recovery', true);

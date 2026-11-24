@@ -37,6 +37,7 @@ export async function startAdmin(main) {
   let alive = true, ch = null, tab = 'boards', msg = '', pins = {}, data = null, timer = null, preview = null, regs = [], regInfo = null, takeOver = null, bpins = [], costs = null, costTimer = null, log = [], seenAt = null, prevSeen = null, logOpen = false, me = null;
 
   const { data: { session } } = await sb.auth.getSession();
+  if (session && store.get('vynen-recovery', false)) return newPwView();
   if (!session) return loginView();
   const isAdmin = await rpc('am_admin', {}).catch(() => false);
   if (!isAdmin) return claimView();
@@ -94,13 +95,21 @@ export async function startAdmin(main) {
         ${note ? `<p class="note" role="alert">${esc(note)}</p>` : ''}
         <button class="btn pri" type="submit">Anmelden</button>
         <button class="btn" type="button" id="su">Konto anlegen</button>
+        <button class="btn ghost" type="button" id="fp">Passwort vergessen?</button>
       </form><p class="muted small">Konto anlegen nur beim ersten Mal. Danach mit dem Einrichtungscode freischalten.</p></div>`;
     const f = main.querySelector('#lf');
     f.onsubmit = async e => {
       e.preventDefault();
       const { error } = await sb.auth.signInWithPassword({ email: f.em.value.trim(), password: f.pw.value });
       if (error) return loginView(error.message.includes('Email not confirmed') ? 'Bitte zuerst den Link in der Bestätigungs-Mail öffnen.' : 'Anmeldung fehlgeschlagen. E-Mail oder Passwort falsch.');
-      reload();
+      store.del('vynen-recovery'); reload();
+    };
+    // Passwort vergessen: Mail mit Link; geändert wird erst, wenn im Link ein neues Passwort gesetzt wird
+    main.querySelector('#fp').onclick = async () => {
+      const em = f.em.value.trim();
+      if (!em || !f.em.checkValidity()) return loginView('Bitte oben zuerst deine E-Mail eintragen, dann „Passwort vergessen?“ tippen.');
+      const { error } = await sb.auth.resetPasswordForEmail(em, { redirectTo: location.origin + location.pathname + '?reset=1' });
+      loginView(error ? 'Mail konnte nicht gesendet werden: ' + error.message : 'Mail ist unterwegs. Link darin öffnen und ein neues Passwort festlegen. Bis dahin bleibt das alte gültig.');
     };
     main.querySelector('#su').onclick = async () => {
       if (!f.reportValidity()) return;
@@ -110,6 +119,25 @@ export async function startAdmin(main) {
       if (!d.session) return loginView('Konto angelegt. Bitte den Link in der Bestätigungs-Mail öffnen und dich dann anmelden.');
       reload();
     };
+    return () => {};
+  }
+
+  // Neues Passwort nach Klick auf den Link aus der Mail
+  function newPwView(note = '') {
+    main.innerHTML = `<div class="adm-box"><h2>Neues Passwort</h2>
+      <form id="np" class="form"><label for="p1">Neues Passwort (mind. 8 Zeichen)</label><input id="p1" type="password" autocomplete="new-password" minlength="8" required>
+        <label for="p2">Nochmal eingeben</label><input id="p2" type="password" autocomplete="new-password" minlength="8" required>
+        ${note ? `<p class="note" role="alert">${esc(note)}</p>` : ''}
+        <button class="btn pri" type="submit">Passwort speichern</button><button class="btn ghost" type="button" id="npx">Abbrechen</button></form></div>`;
+    const f = main.querySelector('#np');
+    f.onsubmit = async e => {
+      e.preventDefault();
+      if (f.p1.value !== f.p2.value) return newPwView('Die beiden Passwörter sind nicht gleich.');
+      const { error } = await sb.auth.updateUser({ password: f.p1.value });
+      if (error) return newPwView('Speichern fehlgeschlagen: ' + error.message);
+      store.del('vynen-recovery'); reload();
+    };
+    main.querySelector('#npx').onclick = async () => { store.del('vynen-recovery'); await sb.auth.signOut(); reload(); };
     return () => {};
   }
 
