@@ -745,3 +745,5 @@ button.ad-slot{cursor:pointer;background:var(--panel2)}button.ad-slot.sel{border
 .ad-sum{font-family:var(--num);font-size:40px;min-height:44px}.ad-sum small{font-family:inherit;font-size:13px;color:var(--muted);text-transform:uppercase;display:block}
 .ad-act{flex-direction:column;align-items:stretch}.ad-act .btn{width:100%}
 @media (max-width:900px){.ad-main{grid-template-columns:1fr}.ad-side{position:static}.ad-live{height:56vh}.ad-players{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.ad-big{font-size:52px}}
+
+.ad-live .ad-tag{position:absolute;left:12px;bottom:12px;background:rgba(0,0,0,.7);padding:6px 12px;border-radius:8px;font-family:var(--num);font-size:24px}

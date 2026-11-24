@@ -142,7 +142,7 @@ export function spielen(main) {
     const S = o.S, from = S.inVisit ? game.darts.length - S.inVisit : S.last ? S.last.s : game.darts.length, to = S.inVisit ? game.darts.length : S.last ? S.last.e : from;
     const cur = S.inVisit ? game.darts.slice(from, to) : [];
     const lastTxt = L => L ? game.darts.slice(L.s, L.e).map(dartTxt).join(' ') + (o.ck ? '' : ` = ${vsum(game.darts.slice(L.s, L.e))}`) : '';
-    const vs = cam && cam.views || [];
+    const vs = cam && cam.views && cam.views.length ? cam.views : cam && cam.streams || [];
     const tabs = [...vs.map((v, k) => `<button class="${liveK === k ? 'on' : ''}" data-live="${k}">📷 ${vs.length > 1 ? k + 1 : 'Live'}</button>`), `<button class="${liveK === 'b' || !vs.length ? 'on' : ''}" data-live="b">🎯 Scheibe</button>`].join('');
     const slots = [0, 1, 2].map(k => { const i = from + k, d = game.darts[i];
       return d && i < to ? `<button class="ad-slot f ${fix === i ? 'sel' : ''}" data-fix="${i}" aria-label="Dart ${k + 1} korrigieren">${dartTxt(d)}</button>` : '<span class="ad-slot"></span>'; }).join('');
@@ -171,6 +171,8 @@ export function spielen(main) {
     const S = isCk(game.type) ? replay(game) : run(game);
     const from = S.inVisit ? game.darts.length - S.inVisit : S.last ? S.last.s : game.darts.length, to = S.inVisit ? game.darts.length : S.last ? S.last.e : from;
     const list = game.darts.slice(from, to).map((d, k) => [from + k, d]);
+    const ss = cam && cam.streams || [];
+    if (ss.length && liveK !== 'b') return mountStream(host, ss[Math.min(liveK, ss.length - 1)], list);
     const vs = cam && cam.views || [];
     if (liveK === 'b' || !vs.length) { liveV = null; host.innerHTML = `<div class="play-bd">${boardSvg(list, fix)}</div>`; return; }
     const v = vs[Math.min(liveK, vs.length - 1)]; liveV = v;
@@ -192,6 +194,22 @@ export function spielen(main) {
         c.fillStyle = '#000'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center'; c.fillText(String(k + 1), x * cw, y * ch + 8); });
     };
     requestAnimationFrame(draw);
+  }
+  // Autodarts-Livebild: <img> mit MJPEG-Stream; klappt der nicht, alle 0,5 s ein Einzelbild
+  const streamImgs = new Map();
+  function mountStream(host, s, list) {
+    liveV = null;
+    let im = streamImgs.get(s.stream);
+    if (!im) {
+      im = document.createElement('img'); im.alt = ''; im.className = 'ad-vid';
+      im.onerror = () => { if (im.dataset.snap) return; im.dataset.snap = '1'; const tick = () => { if (!im.isConnected && im.dataset.t) return; im.dataset.t = '1'; im.src = s.snap + '?t=' + Date.now(); };
+        im.onload = () => setTimeout(tick, 500); im.onerror = () => setTimeout(tick, 1500); tick(); };
+      im.src = s.stream; streamImgs.set(s.stream, im);
+    }
+    host.appendChild(im);
+    const tag = document.createElement('div'); tag.className = 'ad-tag';
+    tag.textContent = list.length ? list.map(([, d]) => dartTxt(d)).join(' · ') : 'Live – Korrigieren über 🎯 Scheibe';
+    host.appendChild(tag);
   }
   // Dart eintragen oder (im Korrekturmodus) ersetzen
   function enter(d, viaCam) {

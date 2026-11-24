@@ -121,5 +121,7 @@ export function createAutodarts(opts) {
     if (a === 'close') { stop(); opts.onClose && opts.onClose(); }
   });
 
-  return { start, stop, sync, manual() {}, clear() { lastTxt = ''; }, get active() { return mode !== 'off'; }, views: [], get ready() { return mode === 'on'; } };
+  return { start, stop, sync, manual() {}, clear() { lastTxt = ''; }, get active() { return mode !== 'off'; }, views: [],
+    // Livebilder der Autodarts-Kameras: MJPEG-Stream (Board Manager 2) bzw. Einzelbilder (ältere Versionen)
+    get streams() { return mode === 'on' ? [0, 1, 2].map(i => ({ stream: `${host}/api/streams/cams/${i}`, snap: `${host}/api/img/cams/${i}` })) : []; }, get ready() { return mode === 'on'; } };
 }
