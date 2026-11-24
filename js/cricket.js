@@ -1,6 +1,7 @@
 // Freies Spiel: Cricket und Tactics für beliebig viele Spieler, nur auf diesem Gerät (kein Login, keine Datenbank)
 import { esc, store } from './db.js';
 import { createCamera, apply as hApply, segmentAt } from './camera.js';
+import { createAutodarts } from './autodarts.js';
 const PC = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches; // Maus = PC/Laptop
 import { DEFS, run, optionsOf } from './games.js';
 
@@ -160,7 +161,7 @@ export function spielen(main) {
           ${fix !== null ? `<p class="play-fix" role="status">✎ ${dartTxt(game.darts[fix])} korrigieren: richtiges Feld im Bild oder auf der Scheibe antippen. <button class="btn sm" data-k="fixno">Abbrechen</button></p>` : '<p class="muted small">Falsch erkannt? Dart oben antippen, dann das richtige Feld.</p>'}
           <div class="bbtns ad-act"><button class="btn" data-t="0">Fehlwurf</button><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
             <button class="btn" data-k="next" ${S.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
-            <button class="btn on" data-k="cam">Kamera aus</button>
+            <button class="btn on" data-k="cam">Erkennung aus</button>
             <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div>
         </div></div></div>`;
   }
@@ -286,6 +287,7 @@ export function spielen(main) {
           <button class="btn" data-k="next" ${st.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
           ${navigator.mediaDevices ? `<button class="btn ${camOn ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
           ${navigator.mediaDevices && PC && !camOn ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
+          ${!camOn ? `<button class="btn" data-k="adk" title="Autodarts erkennt die Würfe, die App zählt">🎯 Autodarts</button>` : ''}
           <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div>
       </div></div>`;
     if (cam && cam.active) cam.sync();
@@ -313,6 +315,7 @@ export function spielen(main) {
           <button class="btn" data-k="next" ${p.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
           ${navigator.mediaDevices ? `<button class="btn ${camOn ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
           ${navigator.mediaDevices && PC && !camOn ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
+          ${!camOn ? `<button class="btn" data-k="adk" title="Autodarts erkennt die Würfe, die App zählt">🎯 Autodarts</button>` : ''}
           <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div></div>`;
   function playGeneric() {
     const def = DEFS[game.type], S = run(game);
@@ -373,10 +376,10 @@ export function spielen(main) {
     }
     if (b.dataset.fix !== undefined) { const i = Number(b.dataset.fix); fix = fix === i ? null : i; return play(); }
     switch (b.dataset.k) {
-      case 'cam': case 'cam3':
+      case 'cam': case 'cam3': case 'adk':
         if (camOn) { if (cam) cam.stop(); camOn = false; return play(); }
         camOn = true;
-        cam = createCamera({ multi: b.dataset.k === 'cam3', targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
+        cam = (b.dataset.k === 'adk' ? createAutodarts : createCamera)({ multi: b.dataset.k === 'cam3', targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
           onDart: (t, m, b) => { if (!game) return; const d = { t, m: t ? m : 0 }; if (b) { d.x = Math.round(b[0] * 10) / 10; d.y = Math.round(b[1] * 10) / 10; } enter(d, true); },
           onClose: () => { camOn = false; play(); }, onReady: () => { if (game) play(); } });
         cam.start(); return play();
