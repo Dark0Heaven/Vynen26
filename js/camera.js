@@ -88,93 +88,149 @@ function dartPixels(mask, w, h) {
 }
 
 // ---------- Kamera-Komponente ----------
-// opts: { targets:[...], onDart(t,m), visitInfo(): {inVisit} }
+// opts: { targets:[...], onDart(t,m), visitInfo(): {inVisit}, multi: bool }
+// multi = mehrere USB-Kameras am PC (z. B. die drei von Autodarts, wenn Autodarts geschlossen ist).
+// Jede Kamera wird einzeln eingemessen; die Spitze wird pro Kamera aufs Board umgerechnet und
+// die Positionen werden zusammengeführt (Mehrheit: Punkt, der am besten zu den anderen passt).
+const MKEY = 'vynen-cam-multi';
+export function fuse(pts, tol = 12) {
+  if (pts.length === 1) return pts[0];
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  let best = pts[0], bs = Infinity;
+  for (const p of pts) { const s = pts.reduce((a, q) => a + d(p, q), 0); if (s < bs) { bs = s; best = p; } }
+  const cl = pts.filter(p => d(p, best) <= tol);
+  return [cl.reduce((a, p) => a + p[0], 0) / cl.length, cl.reduce((a, p) => a + p[1], 0) / cl.length];
+}
 export function createCamera(opts) {
-  let stream = null, video = null, timer = null, cal = store.get(KEY, null), H = null, Hinv = null;
-  let pw = PW, ph = 240, cvs = null, ctx = null, ref = null, prev = null, empty = null, boardMask = null, boardPix = 0;
-  let mode = 'off', stable = 0, proposal = null, countdown = 0, cdTimer = null, auto = store.get('vynen-cam-auto', true);
-  let lastVisit = 0, msg = '';
-  // Trainingsfotos: alle Darts der laufenden Aufnahme mit Spitze (normiert) und Feld
-  let collect = store.get('vynen-cam-collect', false), visitTips = [], tipAsk = null, sent = store.get('vynen-cam-sent', 0);
+  const multi = !!opts.multi;
+  let views = [], V = null; // V = Kamera, die gerade eingemessen/angezeigt wird
+  let timer = null, mode = 'off', proposal = null, countdown = 0, cdTimer = null, auto = store.get('vynen-cam-auto', true);
+  let lastVisit = 0, msg = '', devices = [], pick = store.get(MKEY, []);
+  // Trainingsfotos: alle Darts der laufenden Aufnahme mit Spitze (normiert) und Feld (nur mit einer Kamera)
+  let collect = !multi && store.get('vynen-cam-collect', false), visitTips = [], tipAsk = null, sent = store.get('vynen-cam-sent', 0);
   const panel = document.createElement('div');
   panel.className = 'cam-panel'; panel.hidden = true;
   document.body.appendChild(panel);
 
-  const setCal = c => {
-    cal = c; store.set(KEY, c);
-    H = homography(c.map(p => [p.x, p.y]), CAL.map(p => [p.x, p.y]));
-    Hinv = homography(CAL.map(p => [p.x, p.y]), c.map(p => [p.x, p.y]));
-    buildMask();
+  const calKey = v => multi ? `${KEY}-${v.id}` : KEY;
+  const setCal = (v, c) => {
+    v.cal = c; store.set(calKey(v), c);
+    v.H = homography(c.map(p => [p.x, p.y]), CAL.map(p => [p.x, p.y]));
+    v.Hinv = homography(CAL.map(p => [p.x, p.y]), c.map(p => [p.x, p.y]));
+    buildMask(v);
   };
-  function buildMask() {
-    if (!H) return;
-    boardMask = new Uint8Array(pw * ph); boardPix = 0;
-    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
-      const [bx, by] = apply(H, x / pw, y / ph);
-      if (Math.hypot(bx, by) < 225) { boardMask[y * pw + x] = 1; boardPix++; }
+  function buildMask(v) {
+    if (!v.H) return;
+    v.mask = new Uint8Array(v.pw * v.ph); v.boardPix = 0;
+    for (let y = 0; y < v.ph; y++) for (let x = 0; x < v.pw; x++) {
+      const [bx, by] = apply(v.H, x / v.pw, y / v.ph);
+      if (Math.hypot(bx, by) < 225) { v.mask[y * v.pw + x] = 1; v.boardPix++; }
     }
   }
   // Farbbild (RGB) in Verarbeitungsgröße; Farbe statt Grau, damit z. B. ein grauer Barrel auf grünem Feld sichtbar bleibt
-  function grab() {
-    ctx.drawImage(video, 0, 0, pw, ph);
-    const d = ctx.getImageData(0, 0, pw, ph).data, g = new Uint8Array(pw * ph * 3);
-    for (let i = 0, j = 0, k = 0; i < pw * ph; i++, j += 4, k += 3) { g[k] = d[j]; g[k + 1] = d[j + 1]; g[k + 2] = d[j + 2]; }
+  function grab(v) {
+    v.ctx.drawImage(v.video, 0, 0, v.pw, v.ph);
+    const d = v.ctx.getImageData(0, 0, v.pw, v.ph).data, g = new Uint8Array(v.pw * v.ph * 3);
+    for (let i = 0, j = 0, k = 0; i < v.pw * v.ph; i++, j += 4, k += 3) { g[k] = d[j]; g[k + 1] = d[j + 1]; g[k + 2] = d[j + 2]; }
     return g;
   }
-  const diffCount = (a, b, thr, out) => {
+  const diffCount = (v, a, b, thr, out) => {
     let n = 0;
-    for (let i = 0, k = 0; i < pw * ph; i++, k += 3) {
-      const on = boardMask[i] && Math.max(Math.abs(a[k] - b[k]), Math.abs(a[k + 1] - b[k + 1]), Math.abs(a[k + 2] - b[k + 2])) > thr;
+    for (let i = 0, k = 0; i < v.pw * v.ph; i++, k += 3) {
+      const on = v.mask[i] && Math.max(Math.abs(a[k] - b[k]), Math.abs(a[k + 1] - b[k + 1]), Math.abs(a[k + 2] - b[k + 2])) > thr;
       if (out) out[i] = on ? 1 : 0; if (on) n++;
     }
     return n;
   };
 
-  async function start() {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-    } catch (e) { msg = 'Kein Kamerazugriff. Bitte in den Browser-Einstellungen erlauben.'; mode = 'error'; render(); return; }
-    const hz = store.get('vynen-cam-zoom', null);
-    if (hz) stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: hz }] }).catch(() => {});
-    video = document.createElement('video'); video.playsInline = true; video.muted = true; video.srcObject = stream;
+  async function openView(constraints, id, label) {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: constraints, audio: false });
+    const video = document.createElement('video'); video.playsInline = true; video.muted = true; video.srcObject = stream;
     await video.play().catch(() => {});
     await new Promise(r => video.videoWidth ? r() : video.addEventListener('loadedmetadata', r, { once: true }));
-    ph = Math.round(PW * video.videoHeight / video.videoWidth); pw = PW;
-    cvs = document.createElement('canvas'); cvs.width = pw; cvs.height = ph; ctx = cvs.getContext('2d', { willReadFrequently: true });
-    if (cal) { setCal(cal); mode = 'watch'; resetRef(true); } else mode = 'calib';
+    const v = { id, label, stream, video, pw: PW, ph: Math.round(PW * video.videoHeight / video.videoWidth), cal: null, H: null, Hinv: null, mask: null, boardPix: 0, ref: null, prev: null, empty: null, stable: 0, cur: null };
+    v.cvs = document.createElement('canvas'); v.cvs.width = v.pw; v.cvs.height = v.ph; v.ctx = v.cvs.getContext('2d', { willReadFrequently: true });
+    const c = store.get(calKey(v), null); if (c) setCal(v, c);
+    return v;
+  }
+  async function start() {
+    if (multi) return startMulti();
+    try {
+      const v = await openView({ facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, 'main', '');
+      views = [v]; V = v;
+    } catch (e) { msg = 'Kein Kamerazugriff. Bitte in den Browser-Einstellungen erlauben.'; mode = 'error'; render(); return; }
+    const hz = store.get('vynen-cam-zoom', null);
+    if (hz) V.stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: hz }] }).catch(() => {});
+    begin();
+  }
+  // Mehrere Kameras: erst Zugriff erlauben (sonst fehlen die Namen), dann auswählen
+  async function startMulti() {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      s.getTracks().forEach(t => t.stop());
+      devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    } catch (e) { msg = 'Kein Kamerazugriff. Bitte erlauben – und Autodarts vorher schließen, sonst sind die Kameras belegt.'; mode = 'error'; render(); return; }
+    pick = pick.filter(id => devices.some(d => d.deviceId === id));
+    if (!pick.length) pick = devices.slice(0, 3).map(d => d.deviceId);
+    mode = 'choose'; render();
+  }
+  async function openPicked() {
+    msg = ''; views = [];
+    const sel = devices.filter(d => pick.includes(d.deviceId));
+    for (const [k, d] of sel.entries()) {
+      try { views.push(await openView({ deviceId: { exact: d.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, d.deviceId, d.label || `Kamera ${k + 1}`)); }
+      catch (e) { msg = `${d.label || `Kamera ${k + 1}`} lässt sich nicht öffnen (belegt? Autodarts schließen).`; }
+    }
+    if (!views.length) { mode = 'error'; render(); return; }
+    begin();
+  }
+  function begin() {
+    const todo = views.find(v => !v.cal);
+    if (todo) { V = todo; calPts = []; mode = 'calib'; }
+    else { V = views[0]; mode = 'watch'; resetRef(true); }
     render();
     timer = setInterval(tick, 220);
   }
   function stop() {
     clearInterval(timer); clearInterval(cdTimer); timer = null;
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    stream = null; mode = 'off'; proposal = null; panel.hidden = true; panel.innerHTML = '';
+    for (const v of views) v.stream.getTracks().forEach(t => t.stop());
+    views = []; V = null; mode = 'off'; proposal = null; panel.hidden = true; panel.innerHTML = '';
   }
-  function resetRef(isEmpty) { if (!video) return; ref = grab(); prev = ref; if (isEmpty) empty = ref; stable = 0; }
+  function resetRef(isEmpty) { for (const v of views) { if (!v.H) continue; v.ref = grab(v); v.prev = v.ref; if (isEmpty) v.empty = v.ref; v.stable = 0; } }
 
   function tick() {
     if (mode !== 'watch' && mode !== 'pull') return;
-    const cur = grab();
-    const motion = prev ? diffCount(cur, prev, 22) : 0; prev = cur;
-    stable = motion < Math.max(6, boardPix * 0.002) ? stable + 1 : 0;
+    const live = views.filter(v => v.H && v.ref);
+    for (const v of live) {
+      const cur = grab(v);
+      const motion = v.prev ? diffCount(v, cur, v.prev, 22) : 0; v.prev = cur; v.cur = cur;
+      v.stable = motion < Math.max(6, v.boardPix * 0.002) ? v.stable + 1 : 0;
+    }
     if (mode === 'pull') {
-      // Nach der Aufnahme: warten, bis das Board wieder leer und ruhig ist
-      const vsEmpty = empty ? diffCount(cur, empty, 30) : 0;
-      if (stable >= 3 && vsEmpty < boardPix * 0.004 && !tipAsk) { ref = cur; empty = cur; mode = 'watch'; msg = ''; visitTips = []; render(); }
+      // Nach der Aufnahme: warten, bis das Board wieder leer und ruhig ist (auf allen Kameras)
+      const ok = live.every(v => v.stable >= 3 && (v.empty ? diffCount(v, v.cur, v.empty, 30) : 0) < v.boardPix * 0.004);
+      if (ok && !tipAsk) { for (const v of live) { v.ref = v.cur; v.empty = v.cur; } mode = 'watch'; msg = ''; visitTips = []; render(); }
       return;
     }
-    if (proposal || stable < 2) return;
-    const mask = new Uint8Array(pw * ph);
-    const n = diffCount(cur, ref, 30, mask);
-    if (n < 12) return;
-    if (n > boardPix * 0.12) { msg = 'Zu viel Bewegung vor dem Board …'; render(); return; }
-    const blob = dartPixels(mask, pw, ph);
-    if (blob.length < 10) { ref = cur; return; }
-    const [tx, ty] = tipOf(blob);
-    const [bx, by] = apply(H, tx / pw, ty / ph);
+    if (proposal || live.some(v => v.stable < 2)) return;
+    const cands = []; let busy = false;
+    for (const v of live) {
+      const mask = new Uint8Array(v.pw * v.ph);
+      const n = diffCount(v, v.cur, v.ref, 30, mask);
+      if (n < 12) continue;
+      if (n > v.boardPix * 0.12) { busy = true; continue; }
+      const blob = dartPixels(mask, v.pw, v.ph);
+      if (blob.length < 10) { v.ref = v.cur; continue; }
+      const [tx, ty] = tipOf(blob);
+      cands.push({ v, tip: [tx / v.pw, ty / v.ph], b: apply(v.H, tx / v.pw, ty / v.ph) });
+    }
+    if (!cands.length) { if (busy) { msg = 'Zu viel Bewegung vor dem Board …'; render(); } return; }
+    const [bx, by] = fuse(cands.map(c => c.b));
     const f = segmentAt(bx, by);
     const hit = f.s && opts.targets.includes(f.s);
-    proposal = { t: hit ? f.s : 0, m: hit ? f.m : 0, s: f.s, sm: f.m, label: f.label, game: hit ? f.label : `${f.label} → Fehlwurf`, tip: [tx / pw, ty / ph], frame: cur };
+    const main = cands.find(c => c.v === views[0]) || cands[0];
+    proposal = { t: hit ? f.s : 0, m: hit ? f.m : 0, s: f.s, sm: f.m, label: f.label, game: hit ? f.label : `${f.label} → Fehlwurf`, tip: main.tip, b: [bx, by],
+      frames: live.map(v => [v, v.cur]), seen: cands.length, of: live.length };
     msg = '';
     if (auto) { countdown = 3; clearInterval(cdTimer); cdTimer = setInterval(() => { countdown--; if (countdown <= 0) accept(); else render(); }, 1000); }
     if (navigator.vibrate) try { navigator.vibrate(30); } catch {}
@@ -182,69 +238,83 @@ export function createCamera(opts) {
   }
   function accept() {
     clearInterval(cdTimer); if (!proposal) return;
-    const p = proposal; proposal = null; ref = p.frame;
-    if (p.s) { visitTips.push({ k: opts.visitInfo().inVisit, x: +p.tip[0].toFixed(4), y: +p.tip[1].toFixed(4), s: p.s, m: p.sm, src: 'auto' }); if (collect) upload(); }
+    const p = proposal; proposal = null; for (const [v, fr] of p.frames) v.ref = fr;
+    if (p.s && !multi) { visitTips.push({ k: opts.visitInfo().inVisit, x: +p.tip[0].toFixed(4), y: +p.tip[1].toFixed(4), s: p.s, m: p.sm, src: 'auto' }); if (collect) upload(); }
     opts.onDart(p.t, p.m);
   }
+  const refAll = () => { for (const v of views) if (v.H) v.ref = grab(v); };
   // Foto + Beschriftung hochladen (ohne Login; Fehler werden still ignoriert)
   async function upload() {
-    if (!video || !cal) return;
+    const v = views[0];
+    if (!v || !v.cal || multi) return;
     try {
-      const W = Math.min(800, video.videoWidth), Hh = Math.round(W * video.videoHeight / video.videoWidth);
-      const c = document.createElement('canvas'); c.width = W; c.height = Hh; c.getContext('2d').drawImage(video, 0, 0, W, Hh);
+      const W = Math.min(800, v.video.videoWidth), Hh = Math.round(W * v.video.videoHeight / v.video.videoWidth);
+      const c = document.createElement('canvas'); c.width = W; c.height = Hh; c.getContext('2d').drawImage(v.video, 0, 0, W, Hh);
       const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
       if (!blob || blob.size > 400000) return;
       const path = `v1/${new Date().toISOString().slice(0, 10)}/${uuid()}.jpg`;
       const up = await sb.storage.from('training').upload(path, blob, { contentType: 'image/jpeg' });
       if (up.error) return;
-      await sb.from('training_samples').insert({ path, w: W, h: Hh, cal: cal.map(p => [+p.x.toFixed(4), +p.y.toFixed(4)]),
+      await sb.from('training_samples').insert({ path, w: W, h: Hh, cal: v.cal.map(p => [+p.x.toFixed(4), +p.y.toFixed(4)]),
         darts: visitTips.slice(-3).map(({ k, ...d }) => d), device: navigator.userAgent.slice(0, 190) });
       sent++; store.set('vynen-cam-sent', sent); render();
     } catch { /* Sammeln ist optional */ }
   }
   // Vom Spiel: Dart wurde von Hand eingetragen. Beim Sammeln nach der Spitze fragen.
   function manual() {
-    if (!collect || !video || mode !== 'watch') return;
+    if (!collect || !views.length || mode !== 'watch') return;
     tipAsk = true; render();
   }
-  function reject() { clearInterval(cdTimer); if (proposal) ref = grab(); proposal = null; msg = 'Bitte den Dart unten antippen.'; render(); }
+  function reject() { clearInterval(cdTimer); if (proposal) refAll(); proposal = null; msg = 'Bitte den Dart unten antippen.'; render(); }
 
   // Vom Spiel aufgerufen, nach jeder Änderung (Antippen, Rückgängig, Kamera)
   function sync() {
-    if (!video || mode === 'calib' || mode === 'off') return;
+    if (!views.length || mode === 'calib' || mode === 'off' || mode === 'choose') return;
     const { inVisit } = opts.visitInfo();
     if (mode === 'watch' && inVisit > 0) visitTips = visitTips.filter(t => t.k < inVisit); // Rückgängig
     if (inVisit === 0 && lastVisit > 0) { mode = 'pull'; msg = 'Darts ziehen – danach geht es automatisch weiter.'; proposal = null; clearInterval(cdTimer); }
-    else if (mode === 'watch') ref = grab(); // manuell getippt: aktuelles Bild als neue Referenz
+    else if (mode === 'watch') refAll(); // manuell getippt: aktuelles Bild als neue Referenz
     lastVisit = inVisit; render();
   }
 
   // ---------- Darstellung ----------
-  let calPts = [];
+  let calPts = [], calAll = false;
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function renderChoose() {
+    panel.className = 'cam-panel';
+    panel.innerHTML = `<div class="cam-choose"><b>Kameras wählen</b>
+      <span class="muted small">Autodarts vorher schließen, sonst sind die Kameras belegt. Jede Kamera wird einmal eingemessen.</span>
+      ${devices.length ? devices.map((d, k) => `<label class="inl-l"><input type="checkbox" data-dev value="${esc(d.deviceId)}" ${pick.includes(d.deviceId) ? 'checked' : ''}> ${esc(d.label || `Kamera ${k + 1}`)}</label>`).join('') : '<span>Keine Kamera gefunden.</span>'}
+      <div class="bbtns"><button class="btn pri" data-c="go">Starten</button><button class="btn ghost" data-c="close">Abbrechen</button></div></div>`;
+  }
   function render() {
     if (mode === 'off') { panel.hidden = true; return; }
     panel.hidden = false;
     if (mode === 'error') { panel.innerHTML = `<div class="cam-bar"><span>${msg}</span><button class="btn sm" data-c="close">Schließen</button></div>`; return; }
+    if (mode === 'choose') return renderChoose();
     if (mode === 'calib') return renderCalib();
     if (tipAsk) return renderTipAsk();
     const pr = proposal;
     panel.className = 'cam-panel';
     panel.innerHTML = `<div class="cam-bar">
-      <div class="cam-mini"></div>
-      <div class="cam-info">${pr ? `<span class="muted small">Erkannt</span><b class="cam-hit">${pr.game}</b>`
+      ${views.map((v, k) => `<div class="cam-mini${multi ? ' m' : ''}" data-v="${k}" ${multi ? `title="${v.label.replace(/"/g, '')}"` : ''}></div>`).join('')}
+      <div class="cam-info">${pr ? `<span class="muted small">Erkannt${multi ? ` · ${pr.seen}/${pr.of} Kameras` : ''}</span><b class="cam-hit">${pr.game}</b>`
         : mode === 'pull' ? `<span class="muted small">Kamera</span><b>${msg}</b>`
-        : `<span class="muted small">Kamera (Beta) · ${['1.', '2.', '3.'][opts.visitInfo().inVisit] || ''} Dart</span><b>${msg || 'Bereit – werfen!'}</b>`}</div>
+        : `<span class="muted small">${multi ? `${views.length} Kameras` : 'Kamera'} (Beta) · ${['1.', '2.', '3.'][opts.visitInfo().inVisit] || ''} Dart</span><b>${msg || 'Bereit – werfen!'}</b>`}</div>
       <div class="cam-btns">${pr ? `<button class="btn pri" data-c="ok">✓ ${auto ? countdown : ''}</button><button class="btn" data-c="no">✕</button>`
         : `<button class="btn sm" data-c="free">Board frei</button><button class="btn sm" data-c="calib">Einmessen</button>
            <button class="btn sm ${auto ? 'on' : ''}" data-c="auto" aria-pressed="${auto}">Auto ${auto ? 'an' : 'aus'}</button>
-           <button class="btn sm ${collect ? 'on' : ''}" data-c="collect" aria-pressed="${collect}" title="Fotos fürs KI-Training sammeln">📸 ${collect ? sent : 'Sammeln'}</button><button class="btn sm" data-c="close">Aus</button>`}</div></div>`;
-    const mini = panel.querySelector('.cam-mini');
-    video.className = 'cam-video'; mini.appendChild(video); video.play().catch(() => {});
-    const oc = document.createElement('canvas'); oc.className = 'cam-ov'; mini.appendChild(oc);
-    drawOverlay(oc, pr && pr.tip);
+           ${multi ? '' : `<button class="btn sm ${collect ? 'on' : ''}" data-c="collect" aria-pressed="${collect}" title="Fotos fürs KI-Training sammeln">📸 ${collect ? sent : 'Sammeln'}</button>`}<button class="btn sm" data-c="close">Aus</button>`}</div></div>`;
+    panel.querySelectorAll('.cam-mini').forEach(mini => {
+      const v = views[+mini.dataset.v];
+      v.video.className = 'cam-video'; mini.appendChild(v.video); v.video.play().catch(() => {});
+      const oc = document.createElement('canvas'); oc.className = 'cam-ov'; mini.appendChild(oc);
+      drawOverlay(oc, pr && (multi ? (v.Hinv && apply(v.Hinv, pr.b[0], pr.b[1])) : pr.tip), v);
+    });
   }
-  function drawOverlay(oc, tip) {
+  function drawOverlay(oc, tip, v = V) {
     const w = oc.width = oc.clientWidth * 2 || 240, h = oc.height = oc.clientHeight * 2 || 135, c = oc.getContext('2d');
+    const Hinv = v && v.Hinv;
     if (!Hinv) return;
     c.strokeStyle = 'rgba(0,255,140,.8)'; c.lineWidth = 2;
     for (const r of [170, 162, 107, 99, 15.9]) {
@@ -258,17 +328,17 @@ export function createCamera(opts) {
   let view = { z: 1, tx: 0, ty: 0 };
   function renderCalib() {
     panel.className = 'cam-panel full';
-    const next = CAL[calPts.length];
+    const next = CAL[calPts.length], stream = V.stream, video = V.video;
     const caps = stream && stream.getVideoTracks()[0].getCapabilities ? stream.getVideoTracks()[0].getCapabilities() : {};
     const hz = caps.zoom && caps.zoom.max > caps.zoom.min ? caps.zoom : null;
     const curZ = hz ? (stream.getVideoTracks()[0].getSettings().zoom || hz.min) : 1;
     panel.innerHTML = `<div class="cam-cal"><div class="cam-stage"><div class="cam-zoom"></div>
         <div class="cam-zbtn"><button class="btn sm" data-z="in" aria-label="Vergrößern">＋</button><button class="btn sm" data-z="out" aria-label="Verkleinern">−</button><button class="btn sm" data-z="reset" aria-label="Ganzes Bild">⤢</button></div></div>
-      <div class="cam-cal-bar">${next ? `<b>Tippe auf den äußeren Rand des Double-Rings, mittig auf der <span class="gold">${next.n}</span></b>
+      <div class="cam-cal-bar">${multi ? `<span class="muted small">📷 ${esc(V.label)} · Kamera ${views.indexOf(V) + 1} von ${views.length}</span>` : ''}${next ? `<b>Tippe auf den äußeren Rand des Double-Rings, mittig auf der <span class="gold">${next.n}</span></b>
         <span class="muted small">Punkt ${calPts.length + 1} von 4 · Mit zwei Fingern oder ＋ vergrößern, mit einem Finger verschieben</span>`
         : `<b>Passen die grünen Ringe aufs Board?</b>`}
-        ${hz ? `<label class="inl-l cam-hz">Kamera-Zoom <input type="range" min="${hz.min}" max="${hz.max}" step="${hz.step || 0.1}" value="${curZ}" data-hz></label>` : ''}
-        <div class="bbtns">${next ? '' : '<button class="btn pri" data-c="calok">Passt</button>'}${calPts.length && next ? '<button class="btn" data-c="calback">Letzten Punkt zurück</button>' : ''}<button class="btn" data-c="recal">Neu</button><button class="btn ghost" data-c="close">Abbrechen</button></div></div></div>`;
+        ${hz && !multi ? `<label class="inl-l cam-hz">Kamera-Zoom <input type="range" min="${hz.min}" max="${hz.max}" step="${hz.step || 0.1}" value="${curZ}" data-hz></label>` : ''}
+        <div class="bbtns">${next ? '' : '<button class="btn pri" data-c="calok">Passt</button>'}${calPts.length && next ? '<button class="btn" data-c="calback">Letzten Punkt zurück</button>' : ''}<button class="btn" data-c="recal">Neu</button>${multi && views.length > 1 ? '<button class="btn" data-c="skipcam">Kamera weglassen</button>' : ''}<button class="btn ghost" data-c="close">Abbrechen</button></div></div></div>`;
     const stage = panel.querySelector('.cam-stage'), zl = panel.querySelector('.cam-zoom');
     video.className = 'cam-video'; zl.appendChild(video); video.play().catch(() => {});
     const oc = document.createElement('canvas'); oc.className = 'cam-ov'; zl.appendChild(oc);
@@ -280,7 +350,7 @@ export function createCamera(opts) {
     };
     const zoomAt = (f, cx, cy) => { const z0 = view.z, z1 = Math.min(8, Math.max(1, z0 * f)); view.tx = cx - (cx - view.tx) * z1 / z0; view.ty = cy - (cy - view.ty) * z1 / z0; view.z = z1; applyView(); };
     const hzIn = panel.querySelector('[data-hz]');
-    if (hzIn) hzIn.oninput = () => {
+    if (hzIn && !multi) hzIn.oninput = () => {
       stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: Number(hzIn.value) }] }).catch(() => {});
       store.set('vynen-cam-zoom', Number(hzIn.value));
       if (calPts.length) { calPts = []; renderCalib(); } // anderer Bildausschnitt: Punkte neu setzen
@@ -310,7 +380,7 @@ export function createCamera(opts) {
       const r = oc.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
       if (x < 0 || x > 1 || y < 0 || y > 1) return;
       calPts.push({ x, y });
-      if (calPts.length === 4) setCal(calPts);
+      if (calPts.length === 4) setCal(V, calPts);
       renderCalib();
     };
     stage.onwheel = e => { e.preventDefault(); const rc = stage.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX - rc.left, e.clientY - rc.top); };
@@ -334,7 +404,7 @@ export function createCamera(opts) {
       <div class="cam-cal-bar"><b>📸 Tippe auf die <span class="gold">Spitze</span> des letzten Darts</b>
         <span class="muted small">Damit lernt die Erkennung dazu. Daneben geworfen oder nicht zu sehen: Überspringen.</span>
         <div class="bbtns"><button class="btn" data-c="tipskip">Überspringen</button></div></div></div>`;
-    const stage = panel.querySelector('.cam-stage');
+    const stage = panel.querySelector('.cam-stage'), video = V.video;
     video.className = 'cam-video'; stage.appendChild(video); video.play().catch(() => {});
     const oc = document.createElement('canvas'); oc.className = 'cam-ov'; stage.appendChild(oc);
     requestAnimationFrame(() => {
@@ -343,15 +413,15 @@ export function createCamera(opts) {
       oc.width = box.w; oc.height = box.h; drawOverlay(oc);
       oc.onclick = e => {
         const r = oc.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-        const [bx, by] = apply(H, x, y), f = segmentAt(bx, by);
+        const [bx, by] = apply(V.H, x, y), f = segmentAt(bx, by);
         visitTips.push({ k: Math.max(0, (opts.visitInfo().inVisit || 3) - 1), x: +x.toFixed(4), y: +y.toFixed(4), s: f.s, m: f.m, src: 'tap' });
-        tipAsk = null; upload(); ref = grab(); render();
+        tipAsk = null; upload(); refAll(); render();
       };
     });
   }
   // Wo liegt das Videobild innerhalb des Containers (object-fit: contain)
   function videoBox(el) {
-    const W = el.clientWidth, Hh = el.clientHeight, r = video.videoWidth / video.videoHeight;
+    const video = V.video, W = el.clientWidth, Hh = el.clientHeight, r = video.videoWidth / video.videoHeight;
     let w = W, h = W / r; if (h > Hh) { h = Hh; w = Hh * r; }
     return { x: (W - w) / 2, y: (Hh - h) / 2, w, h };
   }
@@ -363,9 +433,23 @@ export function createCamera(opts) {
     if (c === 'ok') accept();
     if (c === 'no') reject();
     if (c === 'free') { resetRef(true); mode = 'watch'; msg = ''; visitTips = []; render(); }
-    if (c === 'calib' || c === 'recal') { calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
+    if (c === 'calib') { calAll = true; V = views[0]; calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
+    if (c === 'recal') { calPts = []; view = { z: 1, tx: 0, ty: 0 }; mode = 'calib'; render(); }
     if (c === 'calback') { calPts.pop(); render(); }
-    if (c === 'calok') { mode = 'watch'; resetRef(true); msg = ''; render(); }
+    if (c === 'calok') {
+      // Mehrere Kameras: nach „Einmessen“ alle der Reihe nach, sonst nur die noch fehlenden
+      const nxt = multi && (calAll ? views[views.indexOf(V) + 1] : views.find(v => !v.cal));
+      if (nxt) { V = nxt; calPts = []; view = { z: 1, tx: 0, ty: 0 }; render(); return; }
+      calAll = false; V = views[0]; mode = 'watch'; resetRef(true); msg = ''; render();
+    }
+    if (c === 'skipcam') { // Kamera weglassen
+      const k = views.indexOf(V); V.stream.getTracks().forEach(t => t.stop()); views.splice(k, 1);
+      if (!views.length) { stop(); opts.onClose && opts.onClose(); return; }
+      const nxt = calAll ? views[k] : views.find(v => !v.cal);
+      if (nxt) { V = nxt; calPts = []; render(); return; }
+      calAll = false; V = views[0]; mode = 'watch'; resetRef(true); render();
+    }
+    if (c === 'go') { pick = [...panel.querySelectorAll('[data-dev]:checked')].map(i => i.value); if (!pick.length) return; store.set(MKEY, pick); mode = 'off'; openPicked(); }
     if (c === 'auto') { auto = !auto; store.set('vynen-cam-auto', auto); render(); }
     if (c === 'collect') { collect = !collect; store.set('vynen-cam-collect', collect); msg = collect ? 'Sammeln an: Board-Fotos gehen an die Leitung (Personen bitte nicht ins Bild).' : ''; render(); }
     if (c === 'tipskip') { tipAsk = null; render(); }

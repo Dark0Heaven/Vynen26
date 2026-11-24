@@ -504,6 +504,9 @@ body:not(.theme-bigfish){
 .cam-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .cam-mini{position:relative;width:160px;aspect-ratio:16/9;flex:none;border-radius:8px;overflow:hidden;background:#000}
 .cam-mini .cam-video,.cam-mini .cam-ov{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}
+.cam-mini.m{width:120px}
+.cam-choose{display:flex;flex-direction:column;gap:8px;max-width:520px;margin:0 auto;padding:6px 0}
+.cam-choose b{font-size:20px}
 .cam-info{flex:1;min-width:140px;display:flex;flex-direction:column}
 .cam-info b{font-size:20px}
 .cam-hit{font-family:var(--num);font-size:46px!important;line-height:1;color:var(--gold)}

@@ -1,6 +1,7 @@
 // Freies Spiel: Cricket und Tactics für beliebig viele Spieler, nur auf diesem Gerät (kein Login, keine Datenbank)
 import { esc, store } from './db.js';
 import { createCamera } from './camera.js';
+const PC = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches; // Maus = PC/Laptop
 import { DEFS, run, optionsOf } from './games.js';
 
 const GAMES = {
@@ -154,6 +155,7 @@ export function spielen(main) {
         <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
           <button class="btn" data-k="next" ${st.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
           ${navigator.mediaDevices ? `<button class="btn ${cam && cam.active ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
+          ${navigator.mediaDevices && PC && !(cam && cam.active) ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
           <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div>
       </div></div>`;
     if (cam && cam.active) cam.sync();
@@ -180,6 +182,7 @@ export function spielen(main) {
         <div class="bbtns play-act"><button class="btn" data-k="undo" ${game.darts.length ? '' : 'disabled'}>↶ Rückgängig</button>
           <button class="btn" data-k="next" ${p.inVisit ? '' : 'disabled'}>Aufnahme beenden</button>
           ${navigator.mediaDevices ? `<button class="btn ${cam && cam.active ? 'on' : ''}" data-k="cam">📷 Kamera (Beta)</button>` : ''}
+          ${navigator.mediaDevices && PC && !(cam && cam.active) ? `<button class="btn" data-k="cam3" title="Mehrere USB-Kameras am PC (z. B. Autodarts-Kameras)">🎥 3 Kameras</button>` : ''}
           <button class="btn ghost ${sure === 'quit' ? 'warn' : ''}" data-k="quit">${sure === 'quit' ? 'Wirklich beenden?' : 'Spiel abbrechen'}</button></div></div>`;
   function playGeneric() {
     const def = DEFS[game.type], S = run(game);
@@ -219,9 +222,9 @@ export function spielen(main) {
       return play();
     }
     switch (b.dataset.k) {
-      case 'cam':
+      case 'cam': case 'cam3':
         if (cam && cam.active) { cam.stop(); return play(); }
-        cam = createCamera({ targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
+        cam = createCamera({ multi: b.dataset.k === 'cam3', targets: isCk(game.type) ? GAMES[game.type].targets : ALL, visitInfo: () => ({ inVisit: isCk(game.type) ? replay(game).inVisit : run(game).inVisit }),
           onDart: (t, m) => { if (!game) return; game.darts.push({ t, m: t ? m : 0 }); mult = 1; save(); play(); }, onClose: () => play() });
         cam.start(); return play();
       case 'undo': game.darts.pop(); save(); return play();
